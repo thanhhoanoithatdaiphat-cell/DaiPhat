@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "vn.daiphat.vaoca",
+      "sha256_cert_fingerprints": [
+        "CA:F8:0D:78:A5:A4:7D:6D:33:7D:70:C6:12:C4:1B:4C:CE:90:14:9C:04:D2:D8:98:07:11:F8:A1:BB:36:E1:5B"
+      ]
+    }
+  }
+]

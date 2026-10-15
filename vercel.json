@@ -1,0 +1,4 @@
+{
+  "installCommand": "npm install --no-audit --no-fund",
+  "crons": [{ "path": "/api/cron/cleanup", "schedule": "0 20 * * *" }]
+}

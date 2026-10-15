@@ -1,0 +1,178 @@
+@import url("https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Be+Vietnam+Pro:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Barlow Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
+  --color-paper: #e9e7e0;
+  --color-ink: #1d1e1b;
+  --color-pine: #1d1e1b;
+  --color-pine-deep: #000000;
+  --color-ice: #f2c21b;
+  --color-clay: #c63a2d;
+  --color-sand: #dcd9cf;
+  --color-card: #f7f6f1;
+  --color-muted: #6b6b63;
+  --color-line: #cfccc1;
+  --color-ok: #2f6b4f;
+  --color-gold: #f2c21b;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+}
+
+.surface-pass {
+  box-shadow: 0 0 0 1.5px var(--color-ink), 0 5px 0 var(--color-ink);
+}
+
+.tech-stage {
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+.font-display {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.btn-3d {
+  display: inline-flex;
+  height: 3.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.375rem;
+  padding-inline: 1.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.btn-3d:disabled { cursor: not-allowed; opacity: 0.5; }
+.btn-3d:focus-visible, .punch-float:focus-visible { outline: 3px solid var(--color-clay); outline-offset: 4px; }
+
+.btn-3d-primary {
+  color: var(--color-ink);
+  background: var(--color-ice);
+  box-shadow: 0 3px 0 var(--color-ink);
+}
+.btn-3d-primary:active:not(:disabled) { transform: translateY(3px); box-shadow: none; }
+
+.btn-3d-secondary {
+  color: var(--color-ink);
+  background: var(--color-card);
+  box-shadow: 0 0 0 1.5px var(--color-ink), 0 3px 0 var(--color-ink);
+}
+.btn-3d-secondary:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 0 0 1.5px var(--color-ink); }
+
+/* Nút chấm công: con dấu đen, viền vàng thước */
+.punch-float {
+  position: relative;
+  display: grid;
+  width: 11.5rem;
+  height: 11.5rem;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.5rem;
+  background: var(--color-ink);
+  box-shadow: 0 0 0 6px var(--color-card), 0 0 0 8px var(--color-ink), 0 14px 0 -2px rgb(0 0 0 / 0.28);
+  transition: transform 110ms ease, box-shadow 110ms ease;
+}
+.punch-float:active:not(:disabled) {
+  transform: translateY(8px);
+  animation: none;
+  box-shadow: 0 0 0 6px var(--color-card), 0 0 0 8px var(--color-ink), 0 4px 0 -2px rgb(0 0 0 / 0.28);
+}
+.punch-face {
+  position: relative; display: block; width: 100%; height: 100%; overflow: hidden;
+  border-radius: 999px; box-shadow: 0 0 0 3px var(--color-ice);
+}
+.punch-logo { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.punch-halo { display: none; }
+.punch-invite, .punch-invite::after {
+  position: absolute; border-radius: 999px; border: 2px solid var(--color-ice); pointer-events: none;
+}
+.punch-invite { inset: -16px; }
+.punch-invite::after { content: ""; inset: 0; border-color: var(--color-clay); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .punch-float:not(:disabled) .punch-invite,
+  .punch-float:not(:disabled) .punch-invite::after { animation: punch-ring 2.4s ease-out infinite; }
+  .punch-float:not(:disabled) .punch-invite::after { animation-delay: 0.8s; }
+}
+@keyframes punch-ring {
+  0% { transform: scale(1); opacity: 0.9; }
+  80%, 100% { transform: scale(1.18); opacity: 0; }
+}
+
+/* Thước cuộn: ca làm trải dọc, con trỏ đỏ theo giờ */
+.tape { position: relative; background: var(--color-ice); color: var(--color-ink); padding: 0.75rem 0 0.5rem; box-shadow: 0 2px 0 rgb(0 0 0 / 0.25); }
+.tape-ticks {
+  height: 26px; margin-inline: 1.375rem;
+  background:
+    repeating-linear-gradient(90deg, var(--color-ink) 0 1.5px, transparent 1.5px 10%) bottom / 100% 22px no-repeat,
+    repeating-linear-gradient(90deg, var(--color-ink) 0 1px, transparent 1px 2%) bottom / 100% 10px no-repeat;
+}
+.tape-mark { position: absolute; top: 6px; bottom: 28px; width: 3px; background: var(--color-clay); }
+.tape-mark::before { content: ""; position: absolute; top: -2px; left: -5px; border: 6.5px solid transparent; border-top-color: var(--color-clay); }
+@media (prefers-reduced-motion: no-preference) { .tape-mark { transition: left 600ms ease; } }
+
+.bg-card.rounded-2xl,
+.bg-card.rounded-3xl,
+.bg-card.rounded-t-3xl {
+  box-shadow: 0 0 0 1px var(--color-line);
+}
+
+.safe-top {
+  padding-top: max(1.25rem, env(safe-area-inset-top));
+}
+
+.tabbar {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.hero-account > div > span,
+.hero-account > div > img {
+  display: none;
+}
+
+.hero-account button,
+.account-compact button {
+  border-radius: 0.375rem;
+  background: var(--color-card);
+  padding: 0.45rem 0.9rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-ink);
+  box-shadow: 0 0 0 1.5px var(--color-ink);
+}
+
+.account-compact > div > span,
+.account-compact > div > img {
+  display: none;
+}
+

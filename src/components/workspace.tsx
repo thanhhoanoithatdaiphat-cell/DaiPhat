@@ -62,7 +62,7 @@ export function Workspace({ user }: { user: AppUser }) {
 
   return (
     <div className="flex h-dvh justify-center bg-paper">
-      <div className="flex h-full w-full max-w-md flex-col bg-paper">
+      <div className="flex h-full w-full max-w-md flex-col bg-paper md:max-w-3xl lg:max-w-4xl">
         {punching ? null : (
           <header className="safe-top flex items-center justify-between gap-3 border-b-2 border-ink bg-card px-5 pb-4">
             <div className="min-w-0">
@@ -151,7 +151,7 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 px-1 text-xs tracking-wide ${active ? "font-medium text-ink" : "text-muted"}`}
+      className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 px-1 text-xs tracking-wide md:min-h-16 md:text-sm ${active ? "font-medium text-ink" : "text-muted"}`}
     >
       <span className={`h-1 w-10 ${active ? "bg-ice" : "bg-transparent"}`} />
       <span className="relative">

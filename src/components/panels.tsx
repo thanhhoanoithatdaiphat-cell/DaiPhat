@@ -139,7 +139,7 @@ function ShiftTape({ start, end, time }: { start: string; end: string; time: str
   const pct = Math.max(0, Math.min(100, ((now - from) / (to - from)) * 100));
   const rest = to - now;
   return (
-    <div className="mt-6">
+    <div className="mt-2 md:mt-6">
       <div className="tape" role="img" aria-label={`Ca ${start} đến ${end}`}>
         <div className="tape-mark" style={{ left: `calc(1.375rem + (100% - 2.75rem) * ${pct / 100})` }} />
         <div className="tape-ticks" />
@@ -257,25 +257,25 @@ export function PunchPanel({
   }
 
   return (
-    <div className="tech-stage min-h-full pb-8 text-ink">
-      <section className="safe-top px-6 pb-4">
+    <div className="tech-stage min-h-full pb-4 text-ink md:pb-6">
+      <section className="safe-top px-5 pb-2 md:px-8 md:pb-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-ink">VÀO CA</p>
-            <p className="mt-4 text-sm text-muted">{clock.hello}</p>
-            <p className="text-2xl font-medium">{data.profile.fullName}</p>
+            <p className="mt-1 text-sm text-muted md:mt-2">{clock.hello}</p>
+            <p className="text-xl font-medium md:text-2xl">{data.profile.fullName}</p>
           </div>
           <div className="hero-account text-card">
             <UserButton />
           </div>
         </div>
-        <p className="font-display mt-6 text-[6.5rem] leading-[0.9] font-semibold tabular-nums tracking-tight">{clock.time.slice(0, 5)}<span className="ml-1.5 text-3xl font-medium text-muted">{clock.time.slice(6)}</span></p>
-        <p className="mt-2 text-sm text-muted">{todayLong()}</p>
+        <p className="font-display mt-2 text-[4.25rem] leading-none font-semibold tabular-nums tracking-tight md:mt-4 md:text-[6.5rem] md:leading-[0.9]">{clock.time.slice(0, 5)}<span className="ml-1 text-2xl font-medium text-muted md:ml-1.5 md:text-3xl">{clock.time.slice(6)}</span></p>
+        <p className="mt-1 text-sm text-muted">{todayLong()}</p>
       </section>
 
       <ShiftTape start={data.settings.workStart} end={data.settings.workEnd} time={clock.time} />
 
-      <div className="surface-pass mx-4 mt-6 rounded-lg bg-card px-5 pt-5 pb-7 text-ink">
+      <div className="surface-pass mx-4 mt-3 rounded-lg bg-card px-4 pt-4 pb-5 text-ink md:mx-8 md:mt-6 md:px-5 md:pt-5 md:pb-7">
         <div className="flex items-center justify-between gap-3 border-b border-line pb-4">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-ink">{data.companyName}</p>
@@ -301,7 +301,7 @@ export function PunchPanel({
           disabled={busy || (!data.settings.allowOffsite && active.length === 0)}
           onClick={() => locateFirst(primary)}
           aria-label={busy ? "Đang ghi" : primary === "in" ? "Vào ca" : "Ra ca"}
-          className="punch-float mx-auto mt-10 disabled:opacity-40"
+          className="punch-float mx-auto mt-5 disabled:opacity-40 md:mt-10"
         >
           <span className="punch-halo" aria-hidden="true" />
           <span className="punch-invite" aria-hidden="true" />
@@ -309,14 +309,14 @@ export function PunchPanel({
             <img src="/punch-logo.png" alt="" className="punch-logo" />
           </span>
         </button>
-        <p className="mt-6 text-center font-display text-3xl font-bold">{primary === "in" ? "VÀO CA" : "RA CA"}</p>
+        <p className="mt-3 text-center font-display text-2xl font-bold md:mt-6 md:text-3xl">{primary === "in" ? "VÀO CA" : "RA CA"}</p>
         {active.length === 0 && !data.settings.allowOffsite ? (
           <p className="mt-3 text-center text-sm text-clay">Chưa có điểm chấm công đang bật.</p>
         ) : null}
       </div>
 
       {active.length > 0 && !data.settings.allowOffsite ? (
-        <ul className="mt-4 flex gap-2 overflow-x-auto px-4 pb-1">
+        <ul className="mt-2 flex gap-2 overflow-x-auto px-4 pb-1 md:mt-4">
           {active.map((loc) => (
             <li key={loc.id} className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-card px-3 py-2 text-sm text-ink">
               <MapPin className="size-4 text-ink" strokeWidth={1.5} />

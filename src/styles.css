@@ -176,3 +176,12 @@
   display: none;
 }
 
+
+/* Mobile compact: giảm kích thước nút và khoảng cách trên màn thấp */
+@media (max-height: 740px) {
+  .punch-float { width: 8.5rem; height: 8.5rem; }
+  .punch-invite { inset: -12px; }
+}
+@media (min-width: 768px) {
+  .punch-float { width: 12.5rem; height: 12.5rem; }
+}

@@ -40,7 +40,7 @@ Production thiếu `DATABASE_URL` hoặc `BETTER_AUTH_SECRET` sẽ báo lỗi r�
 - Nếu công ty chưa có mã (quản trị chưa mở Cài đặt lần nào), đăng ký bị đóng cho tới khi quản trị lấy mã.
 
 ## Tự xóa ảnh chấm công cũ
-- Mỗi ngày lúc 03:00 (giờ Việt Nam) Vercel Cron gọi `/api/cron/cleanup` để xóa ảnh chấm công cũ hơn 90 ngày. Giờ, vị trí và trạng thái vẫn được giữ, chỉ mất ảnh.
+- Mỗi ngày lúc 03:00 (giờ Việt Nam) Vercel Cron gọi `/api/cron/cleanup` để xóa ảnh chấm công cũ hơn 60 ngày. Giờ, vị trí và trạng thái vẫn được giữ, chỉ mất ảnh.
 - Cần đặt `CRON_SECRET` trên Vercel; Vercel tự gửi kèm khi gọi cron. Thiếu biến này thì tác vụ từ chối chạy.
 - Kiểm tra trong Vercel → Settings → Cron Jobs rằng tác vụ đã được đăng ký và gói của bạn cho phép chạy mỗi ngày.
 - Đổi số ngày giữ ảnh bằng hằng số `PHOTO_RETENTION_DAYS` trong `src/routes/api/cron/cleanup.ts`.

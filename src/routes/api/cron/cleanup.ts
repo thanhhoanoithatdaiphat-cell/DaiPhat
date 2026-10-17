@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { getSql } from "@/lib/db";
 
 /** Giữ ảnh chấm công bao nhiêu ngày. Sau đó chỉ xóa ảnh, vẫn giữ giờ và vị trí. */
-const PHOTO_RETENTION_DAYS = 90;
+const PHOTO_RETENTION_DAYS = 60;
 
 /**
  * Tác vụ dọn dẹp chạy hằng ngày bằng Vercel Cron (xem vercel.json).

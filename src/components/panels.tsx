@@ -168,7 +168,7 @@ export function PunchPanel({
   const [result, setResult] = useState<PunchResult | null>(null);
   const [geoFailed, setGeoFailed] = useState<"in" | "out" | null>(null);
   const [pendingPhoto, setPendingPhoto] = useState("");
-  const [pendingLoc, setPendingLoc] = useState<{ lat: number; lng: number } | null>(null);
+  const [pendingLoc, setPendingLoc] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
   const active = data.locations.filter((loc) => loc.isActive);
   const last = data.today[data.today.length - 1];
   const clock = useClock();
@@ -176,11 +176,11 @@ export function PunchPanel({
   const span = workedPhrase(data.today);
   const initial = (data.profile.fullName || "N").trim().charAt(0).toUpperCase();
 
-  async function submit(type: "in" | "out", lat: number, lng: number, photo: string, locationSource: "gps" | "manual") {
+  async function submit(type: "in" | "out", lat: number, lng: number, photo: string, locationSource: "gps" | "manual", accuracy?: number) {
     setBusy(true);
     setError("");
     try {
-      const next = await punch({ data: { type, lat, lng, photo, locationSource } });
+      const next = await punch({ data: { type, lat, lng, photo, locationSource, accuracy } });
       setResult(next);
       setGeoFailed(null);
       setPendingPhoto("");
@@ -211,7 +211,7 @@ export function PunchPanel({
           setError(`GPS không chính xác (sai số ~${Math.round(acc)} m). Ra nơi thoáng hơn rồi thử lại.`);
           return;
         }
-        setPendingLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setPendingLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy });
         setCameraFor(type);
         setBusy(false);
       },
@@ -376,7 +376,7 @@ export function PunchPanel({
             const type = cameraFor;
             setCameraFor(null);
             if (pendingLoc) {
-              void submit(type, pendingLoc.lat, pendingLoc.lng, photo, "gps");
+              void submit(type, pendingLoc.lat, pendingLoc.lng, photo, "gps", pendingLoc.accuracy);
               setPendingLoc(null);
             } else {
               locateThenSubmit(type, photo);

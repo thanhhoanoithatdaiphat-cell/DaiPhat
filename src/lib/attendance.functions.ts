@@ -110,6 +110,19 @@ function mapProfile(row: ProfileDb): ProfileRow {
   };
 }
 
+
+async function isOnlyReviewer(companyId: string, userId: string): Promise<boolean> {
+  const sql = await getSql();
+  const others = await sql<{ n: number }>`
+    select count(*)::int as n from profiles
+    where company_id = ${companyId}
+      and user_id <> ${userId}
+      and role in ('approver', 'admin')
+      and is_active = true
+  `;
+  return Number(others[0]?.n ?? 0) === 0;
+}
+
 function canReview(role: Role): boolean {
   return role === "admin" || role === "approver";
 }
@@ -474,6 +487,7 @@ export const punch = createServerFn({ method: "POST" })
       lng: number;
       photo: string;
       locationSource: "gps" | "manual";
+      accuracy?: number;
     }) => {
       if (input.type !== "in" && input.type !== "out") throw new Error("Loại chấm công không hợp lệ");
       if (!Number.isFinite(input.lat) || input.lat < -90 || input.lat > 90) {
@@ -484,6 +498,13 @@ export const punch = createServerFn({ method: "POST" })
       }
       if (input.locationSource !== "gps") {
         throw new Error("Chỉ chấp nhận vị trí GPS của máy.");
+      }
+      const accuracy = input.accuracy == null ? null : Number(input.accuracy);
+      if (accuracy != null && (!Number.isFinite(accuracy) || accuracy < 0 || accuracy > 5000)) {
+        throw new Error("Sai số GPS không hợp lệ");
+      }
+      if (accuracy != null && accuracy > 200) {
+        throw new Error(`GPS không chính xác (sai số ~${Math.round(accuracy)} m). Ra nơi thoáng hơn rồi thử lại.`);
       }
       return input;
     },
@@ -611,6 +632,22 @@ export const punch = createServerFn({ method: "POST" })
       }
       overtimeMinutes = data.type === "out" ? Math.max(0, clock - hmToMinutes(settings.workEnd)) : 0;
       overtimeStatus = overtimeMinutes >= OT_ALERT_MINUTES ? "pending" : "none";
+    }
+    // Recheck ngay trước khi insert để giảm race condition (hai tab bấm cùng lúc)
+    const recheck = await sql<{ type: "in" | "out" }>`
+      select type from attendances
+      where user_id = ${profile.userId}
+        and punched_at >= ${todayBounds.start}::timestamptz
+        and punched_at < ${todayBounds.end}::timestamptz
+      order by punched_at desc
+      limit 1
+    `;
+    const reLast = recheck[0]?.type ?? null;
+    if (data.type === "in" && reLast === "in") {
+      throw new Error("Bạn đang trong ca. Hãy ra ca trước khi vào ca tiếp.");
+    }
+    if (data.type === "out" && reLast !== "in") {
+      throw new Error("Chưa có lần vào ca hôm nay. Hãy vào ca trước.");
     }
     const inserted = await sql<{ punched_at: unknown }>`
       insert into attendances (
@@ -803,7 +840,10 @@ export const reviewCorrection = createServerFn({ method: "POST" })
     `;
     const row = rows[0];
     if (!row || row.status !== "pending") throw new Error("Đơn không còn chờ duyệt");
-    if (row.user_id === profile.userId) throw new Error("Không tự duyệt đơn của mình");
+    if (row.user_id === profile.userId) {
+        const only = await isOnlyReviewer(profile.companyId, profile.userId);
+        if (!only) throw new Error("Không tự duyệt đơn của mình");
+      }
     if (data.decision === "approved") {
       const day = dateOnly(row.attendance_date);
       await assertMonthOpen(profile.companyId, day);
@@ -899,7 +939,10 @@ export const listRankings = createServerFn({ method: "POST" })
     for (const bucket of byUser.values()) {
       const times = [...bucket.days.values()];
       if (times.length === 0) continue;
-      const onTime = times.filter((t) => vnMinutes(t) - hmToMinutes(settings.workStart) <= 0).length;
+      const onTime = times.filter((t) => {
+        const late = Math.max(0, vnMinutes(t) - hmToMinutes(settings.workStart));
+        return late < settings.lateMinutes;
+      }).length;
       consistent.push({
         fullName: bucket.fullName,
         days: times.length,
@@ -1015,10 +1058,18 @@ export const exportTimesheet = createServerFn({ method: "POST" })
     for (const bucket of sorted) {
       const firstIn = bucket.punches.find((punch) => punch.type === "in");
       const lastOut = [...bucket.punches].reverse().find((punch) => punch.type === "out");
-      const hours =
-        firstIn && lastOut
-          ? minutesToHm(Math.max(0, (new Date(lastOut.at).getTime() - new Date(firstIn.at).getTime()) / 60000))
-          : "";
+      // Cộng từng đoạn vào–ra (giống màn nhân viên), không tính giờ nghỉ trưa
+      let worked = 0;
+      let openIn: number | null = null;
+      for (const p of bucket.punches) {
+        const t = new Date(p.at).getTime();
+        if (p.type === "in") openIn = t;
+        else if (openIn != null) {
+          worked += Math.max(0, (t - openIn) / 60000);
+          openIn = null;
+        }
+      }
+      const hours = worked > 0 ? minutesToHm(Math.round(worked)) : "";
       const lateMinutes = firstIn?.lateMinutes ?? 0;
       const overtimeMinutes = lastOut?.overtimeMinutes ?? 0;
       const overtimeStatus = lastOut?.overtimeStatus ?? "none";
@@ -1038,7 +1089,7 @@ export const exportTimesheet = createServerFn({ method: "POST" })
           firstIn ? vnTimeExport(firstIn.at) : "",
           lastOut ? vnTimeExport(lastOut.at) : "",
           hours,
-          firstIn ? String(lateMinutes) : "",
+          firstIn && lateMinutes >= settings.lateMinutes ? String(lateMinutes) : "",
           lastOut && overtimeMinutes > 0 ? minutesToHm(overtimeMinutes) : "",
           counted,
           lastOut ? overtimeLabel(overtimeStatus, overtimeMinutes) : "",
@@ -1088,7 +1139,10 @@ export const reviewOvertime = createServerFn({ method: "POST" })
     `;
     const row = rows[0];
     if (!row || row.overtime_status !== "pending") throw new Error("Lần tăng ca này không còn chờ duyệt");
-    if (row.user_id === profile.userId) throw new Error("Không tự duyệt tăng ca của mình");
+    if (row.user_id === profile.userId) {
+        const only = await isOnlyReviewer(profile.companyId, profile.userId);
+        if (!only) throw new Error("Không tự duyệt tăng ca của mình");
+      }
     await assertMonthOpen(profile.companyId, vnDateKey(stamp(row.punched_at)));
     await sql`
       update attendances set overtime_status = ${data.decision}
@@ -1469,7 +1523,10 @@ export const reviewLeave = createServerFn({ method: "POST" })
     `;
     const row = rows[0];
     if (!row || row.status !== "pending") throw new Error("Đơn không còn chờ duyệt");
-    if (row.user_id === profile.userId) throw new Error("Không tự duyệt đơn của mình");
+    if (row.user_id === profile.userId) {
+        const only = await isOnlyReviewer(profile.companyId, profile.userId);
+        if (!only) throw new Error("Không tự duyệt đơn của mình");
+      }
     if (data.decision === "approved") {
       await assertMonthOpen(profile.companyId, dateOnly(row.leave_date));
     }

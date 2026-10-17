@@ -45,7 +45,10 @@ export async function regenerateInviteCode(companyId: string): Promise<string> {
 export async function assertInviteAllowed(input: unknown): Promise<void> {
   const sql = await getSql();
   const users = await sql<{ n: number }>`select count(*)::int as n from "user"`;
-  if (Number(users[0]?.n ?? 0) === 0) return;
+  // Mặc định người đầu tiên được đăng ký không cần mã để trở thành quản trị.
+  // Đặt REQUIRE_INVITE_ALWAYS=true để tắt cửa sổ này (an toàn hơn nếu URL công khai sớm).
+  const lockFirst = process.env.REQUIRE_INVITE_ALWAYS === "true";
+  if (!lockFirst && Number(users[0]?.n ?? 0) === 0) return;
   const rows = await sql<{ invite_code: string | null }>`select invite_code from companies where id = ${COMPANY_ID}`;
   const stored = rows[0]?.invite_code;
   if (!stored) {

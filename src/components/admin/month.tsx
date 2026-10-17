@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, Download, Lock, LockOpen, Search, X } from "lucide-react";
 import { errorText } from "@/components/ui";
 import { exportTimesheet, getMonthGrid, lockMonth } from "@/lib/attendance.functions";
@@ -36,6 +36,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState<{ userId: string; dateKey: string } | null>(null);
+  const [personId, setPersonId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const approvedCount = corrections.filter((c) => c.status === "approved").length;
 
@@ -199,7 +200,11 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
             <tbody>
               {rows.map(({ person, cells, sum }) => (
                 <tr key={person.userId} className="group">
-                  <th className="sticky left-0 z-10 max-w-52 truncate border-b border-line bg-card px-3 py-1.5 text-left font-medium group-hover:bg-paper">{person.fullName}</th>
+                  <th className="sticky left-0 z-10 max-w-52 truncate border-b border-line bg-card px-3 py-1.5 text-left font-medium group-hover:bg-paper">
+                    <button type="button" className="truncate text-left underline decoration-dotted" onClick={() => setPersonId(person.userId)}>
+                      {person.fullName}
+                    </button>
+                  </th>
                   <Num v={sum.days} />
                   <Num v={sum.late} warn />
                   <Num v={sum.absent} bad />
@@ -265,8 +270,113 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
           <p className="mt-8 text-xs text-muted">Cần sửa giờ? Nhân viên gửi đơn sửa công, bạn duyệt trong mục "Cần duyệt". Mọi chỉnh sửa đều có dấu vết.</p>
         </aside>
       ) : null}
+      {personId && grid ? (
+        <PersonDetail
+          person={grid.people.find((p) => p.userId === personId)}
+          days={days}
+          cells={rows.find((r) => r.person.userId === personId)?.cells ?? []}
+          onClose={() => setPersonId(null)}
+          onPickDay={(dateKey) => {
+            setSel({ userId: personId, dateKey });
+            setPersonId(null);
+          }}
+        />
+      ) : null}
     </div>
   );
+}
+
+function PersonDetail({
+  person,
+  days,
+  cells,
+  onClose,
+  onPickDay,
+}: {
+  person: MonthGrid["people"][number] | undefined;
+  days: string[];
+  cells: DayCell[];
+  onClose: () => void;
+  onPickDay: (dateKey: string) => void;
+}) {
+  if (!person) return null;
+  const lateDays = cells
+    .map((c, i) => ({ c, d: days[i] }))
+    .filter((x) => x.c.kind === "late");
+  const otDays = cells
+    .map((c, i) => ({ c, d: days[i] }))
+    .filter((x) => x.c.overtimeMinutes > 0 && x.c.overtimeStatus === "approved");
+  const absentDays = cells
+    .map((c, i) => ({ c, d: days[i] }))
+    .filter((x) => x.c.kind === "absent");
+  const sum = summarize(cells);
+  return (
+    <aside className="fixed inset-0 z-40 flex items-end justify-center bg-ink/40 sm:items-center">
+      <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-card p-5 sm:rounded-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="font-display text-3xl font-bold">{person.fullName}</p>
+            <p className="text-sm text-muted">{[person.employeeCode, person.department].filter(Boolean).join(" · ") || "Nhân viên"}</p>
+          </div>
+          <button type="button" aria-label="Đóng" className="grid size-9 place-items-center rounded-md border-[1.5px] border-ink" onClick={onClose}>
+            <X className="size-5" />
+          </button>
+        </div>
+        <div className="mt-4 grid grid-cols-4 gap-2 text-center">
+          <Stat label="Công" value={String(sum.days)} />
+          <Stat label="Muộn" value={String(sum.late)} />
+          <Stat label="Vắng" value={String(sum.absent)} />
+          <Stat label="Tăng ca" value={sum.overtimeMinutes ? minutesToHm(sum.overtimeMinutes) : "–"} />
+        </div>
+        <Section title={`Ngày đi muộn (${lateDays.length})`}>
+          {lateDays.length === 0 ? <Empty /> : lateDays.map(({ c, d }) => (
+            <DayLine key={d} date={d} text={`Muộn ${c.lateMinutes} phút · vào ${c.firstIn ? vnTime(c.firstIn) : "?"}`} onClick={() => onPickDay(d)} />
+          ))}
+        </Section>
+        <Section title={`Ngày tăng ca đã duyệt (${otDays.length})`}>
+          {otDays.length === 0 ? <Empty /> : otDays.map(({ c, d }) => (
+            <DayLine key={d} date={d} text={minutesToHm(c.overtimeMinutes)} onClick={() => onPickDay(d)} />
+          ))}
+        </Section>
+        <Section title={`Ngày vắng (${absentDays.length})`}>
+          {absentDays.length === 0 ? <Empty /> : absentDays.map(({ d }) => (
+            <DayLine key={d} date={d} text="Vắng" onClick={() => onPickDay(d)} />
+          ))}
+        </Section>
+      </div>
+    </aside>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-line bg-paper px-2 py-2">
+      <p className="text-xs text-muted">{label}</p>
+      <p className="font-display text-xl font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="mt-5">
+      <h3 className="text-sm font-semibold">{title}</h3>
+      <div className="mt-2 space-y-1">{children}</div>
+    </section>
+  );
+}
+
+function DayLine({ date, text, onClick }: { date: string; text: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="flex w-full items-center justify-between rounded-md border border-line bg-paper px-3 py-2 text-left text-sm">
+      <span>{formatVnDay(date)}</span>
+      <span className="text-muted">{text}</span>
+    </button>
+  );
+}
+
+function Empty() {
+  return <p className="text-sm text-muted">Không có.</p>;
 }
 
 function DayChips({ cell }: { cell: DayCell }) {

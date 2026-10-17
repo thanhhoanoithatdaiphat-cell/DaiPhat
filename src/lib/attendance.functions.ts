@@ -572,6 +572,16 @@ export const punch = createServerFn({ method: "POST" })
     let lateMinutes = 0;
     let overtimeMinutes = 0;
     let overtimeStatus: OvertimeStatus = "none";
+    // Chỉ tính muộn cho lần VÀO đầu tiên trong ngày
+    const existingIns = await sql<{ n: number }>`
+      select count(*)::int as n from attendances
+      where user_id = ${profile.userId}
+        and type = 'in'
+        and punched_at >= ${todayBounds.start}::timestamptz
+        and punched_at < ${todayBounds.end}::timestamptz
+        and status in ('valid', 'corrected')
+    `;
+    const isFirstIn = data.type === "in" && Number(existingIns[0]?.n ?? 0) === 0;
     if (sunday) {
       if (data.type === "out") {
         const todayRows = await sql<{ type: "in" | "out"; punched_at: unknown }>`
@@ -596,7 +606,9 @@ export const punch = createServerFn({ method: "POST" })
         overtimeStatus = overtimeMinutes > 0 ? "pending" : "none";
       }
     } else {
-      lateMinutes = data.type === "in" ? Math.max(0, clock - hmToMinutes(settings.workStart)) : 0;
+      if (isFirstIn) {
+        lateMinutes = Math.max(0, clock - hmToMinutes(settings.workStart));
+      }
       overtimeMinutes = data.type === "out" ? Math.max(0, clock - hmToMinutes(settings.workEnd)) : 0;
       overtimeStatus = overtimeMinutes >= OT_ALERT_MINUTES ? "pending" : "none";
     }
@@ -796,12 +808,41 @@ export const reviewCorrection = createServerFn({ method: "POST" })
       const day = dateOnly(row.attendance_date);
       await assertMonthOpen(profile.companyId, day);
       const punchedAt = `${day}T${row.requested_time}:00+07:00`;
+      const settings = readSettings((await sql<{ settings: unknown }>`select settings from companies where id = ${profile.companyId}`)[0]?.settings);
+      let lateMinutes = 0;
+      let overtimeMinutes = 0;
+      let overtimeStatus: OvertimeStatus = "none";
+      const clock = hmToMinutes(row.requested_time);
+      const sunday = vnWeekday(day + "T00:00:00+07:00") === 0;
+      if (!sunday && row.punch_type === "in") {
+        // Chỉ tính muộn nếu đây sẽ là lần vào đầu tiên (hoặc sớm nhất)
+        const existing = await sql<{ punched_at: unknown }>`
+          select punched_at from attendances
+          where user_id = ${row.user_id}
+            and type = 'in'
+            and punched_at >= ${day}::date
+            and punched_at < (${day}::date + interval '1 day')
+            and status in ('valid', 'corrected')
+          order by punched_at asc
+          limit 1
+        `;
+        const isEarliest = !existing[0] || new Date(punchedAt).getTime() <= new Date(stamp(existing[0].punched_at)).getTime();
+        if (isEarliest) {
+          lateMinutes = Math.max(0, clock - hmToMinutes(settings.workStart));
+        }
+      }
+      if (!sunday && row.punch_type === "out") {
+        overtimeMinutes = Math.max(0, clock - hmToMinutes(settings.workEnd));
+        overtimeStatus = overtimeMinutes >= OT_ALERT_MINUTES ? "pending" : "none";
+      }
       await sql`
         insert into attendances (
-          user_id, company_id, type, punched_at, status, nearest_name, location_source, note
+          user_id, company_id, type, punched_at, status, nearest_name, location_source, note,
+          late_minutes, overtime_minutes, overtime_status
         ) values (
           ${row.user_id}, ${profile.companyId}, ${row.punch_type}, ${punchedAt}::timestamptz,
-          'corrected', 'Đơn đã duyệt', 'manual', ${`Đơn #${row.id}`}
+          'corrected', 'Đơn đã duyệt', 'manual', ${`Đơn #${row.id}`},
+          ${lateMinutes}, ${overtimeMinutes}, ${overtimeStatus}
         )
       `;
     }
@@ -874,7 +915,9 @@ export const listRankings = createServerFn({ method: "POST" })
   });
 
 function csvCell(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`;
+  // Ngăn CSV injection: ô bắt đầu bằng = + - @ được prefix bằng dấu nháy đơn
+  const safe = /^[=+\-@]/.test(value) ? "'" + value : value;
+  return `"${safe.replace(/"/g, '""')}"`;
 }
 
 export const exportTimesheet = createServerFn({ method: "POST" })
@@ -1061,7 +1104,6 @@ export const updateProfile = createServerFn({ method: "POST" })
       employeeCode: string;
       department: string;
       jobTitle: string;
-      startedOn: string;
       avatar: string;
     }) => {
       const fullName = input.fullName.trim().slice(0, 80);
@@ -1069,14 +1111,11 @@ export const updateProfile = createServerFn({ method: "POST" })
       const employeeCode = input.employeeCode.trim().slice(0, 20);
       const department = input.department.trim().slice(0, 60);
       const jobTitle = input.jobTitle.trim().slice(0, 60);
-      const startedOn = input.startedOn.trim();
-      if (startedOn && !/^\d{4}-\d{2}-\d{2}$/.test(startedOn)) throw new Error("Ngày vào làm chưa đúng");
-      if (startedOn && startedOn > vnDateKey()) throw new Error("Ngày vào làm không được ở tương lai");
       const avatar = input.avatar.trim();
       if (avatar && (!avatar.startsWith("data:image/jpeg;base64,") || avatar.length > 180_000)) {
         throw new Error("Ảnh đại diện quá nặng hoặc không đúng định dạng.");
       }
-      return { fullName, employeeCode, department, jobTitle, startedOn, avatar };
+      return { fullName, employeeCode, department, jobTitle, avatar };
     },
   )
   .middleware([authMiddleware])
@@ -1089,9 +1128,53 @@ export const updateProfile = createServerFn({ method: "POST" })
           employee_code = ${data.employeeCode || null},
           department = ${data.department || null},
           job_title = ${data.jobTitle || null},
-          started_on = ${data.startedOn || null}::date,
           avatar_data = coalesce(${data.avatar || null}, avatar_data)
       where user_id = ${profile.userId}
+    `;
+    return { ok: true };
+  });
+
+export const adminUpdateProfile = createServerFn({ method: "POST" })
+  .validator(
+    (input: {
+      userId: string;
+      fullName: string;
+      employeeCode: string;
+      department: string;
+      jobTitle: string;
+      startedOn: string;
+      isActive: boolean;
+      endedOn: string;
+    }) => {
+      const userId = input.userId.trim();
+      if (!userId) throw new Error("Thiếu nhân viên");
+      const fullName = input.fullName.trim().slice(0, 80);
+      if (fullName.length < 2) throw new Error("Tên cần ít nhất 2 ký tự");
+      const employeeCode = input.employeeCode.trim().slice(0, 20);
+      const department = input.department.trim().slice(0, 60);
+      const jobTitle = input.jobTitle.trim().slice(0, 60);
+      const startedOn = input.startedOn.trim();
+      if (startedOn && !/^\d{4}-\d{2}-\d{2}$/.test(startedOn)) throw new Error("Ngày vào làm chưa đúng");
+      const endedOn = input.endedOn.trim();
+      if (endedOn && !/^\d{4}-\d{2}-\d{2}$/.test(endedOn)) throw new Error("Ngày nghỉ việc chưa đúng");
+      return { userId, fullName, employeeCode, department, jobTitle, startedOn, isActive: Boolean(input.isActive), endedOn };
+    },
+  )
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) => {
+    const profile = await requireProfile(context.userId);
+    if (profile.role !== "admin") throw new Error("Chỉ quản trị được sửa hồ sơ nhân viên");
+    const sql = await getSql();
+    await sql`
+      update profiles
+      set full_name = ${data.fullName},
+          employee_code = ${data.employeeCode || null},
+          department = ${data.department || null},
+          job_title = ${data.jobTitle || null},
+          started_on = ${data.startedOn || null}::date,
+          is_active = ${data.isActive},
+          ended_on = ${data.endedOn || null}::date
+      where user_id = ${data.userId} and company_id = ${profile.companyId}
     `;
     return { ok: true };
   });
@@ -1214,8 +1297,10 @@ export const getMonthGrid = createServerFn({ method: "POST" })
       department: string | null;
       role: Role;
       started_on: unknown;
+      ended_on: unknown;
+      is_active: boolean;
     }>`
-      select user_id, full_name, employee_code, department, role, started_on
+      select user_id, full_name, employee_code, department, role, started_on, ended_on, is_active
       from profiles where company_id = ${profile.companyId}
       order by full_name asc
     `;
@@ -1267,6 +1352,21 @@ export const getMonthGrid = createServerFn({ method: "POST" })
       from timesheet_locks l left join profiles p on p.user_id = l.locked_by
       where l.company_id = ${profile.companyId} and l.month = ${month}
     `;
+    const holidayRows = await sql<{ date: unknown; name: string }>`
+      select date, name from holidays where company_id = ${profile.companyId}
+        and date >= ${start}::date and date < ${end}::date
+    `;
+    const leaveRows = await sql<{ user_id: string; leave_date: unknown; kind: string }>`
+      select user_id, leave_date, kind from leave_requests
+      where company_id = ${profile.companyId} and status = 'approved'
+        and leave_date >= ${start}::date and leave_date < ${end}::date
+    `;
+    const holidays = holidayRows.map(r => dateOnly(r.date));
+    const leaves: Record<string, Record<string, string>> = {};
+    for (const r of leaveRows) {
+      const d = dateOnly(r.leave_date);
+      ((leaves[r.user_id] ??= {})[d] = r.kind);
+    }
     return {
       month,
       todayKey: vnDateKey(),
@@ -1277,8 +1377,12 @@ export const getMonthGrid = createServerFn({ method: "POST" })
         department: p.department,
         role: p.role,
         startedOn: p.started_on ? dateOnly(p.started_on) : null,
+        endedOn: p.ended_on ? dateOnly(p.ended_on) : null,
+        isActive: Boolean(p.is_active),
       })),
       punches,
+      holidays,
+      leaves,
       lock: locks[0]
         ? { lockedAt: stamp(locks[0].locked_at), lockedByName: locks[0].full_name ?? "Quản trị" }
         : null,
@@ -1323,4 +1427,80 @@ export const regenerateInviteCode = createServerFn({ method: "POST" })
     if (profile.role !== "admin") throw new Error("Chỉ quản trị đổi được mã mời");
     const { formatInvite, regenerateInviteCode: regenerate } = await import("@/lib/auth/invite.server");
     return { code: formatInvite(await regenerate(profile.companyId)) };
+  });
+
+
+export const createLeaveRequest = createServerFn({ method: "POST" })
+  .validator((input: { leaveDate: string; kind: string; note: string }) => {
+    const leaveDate = input.leaveDate.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(leaveDate)) throw new Error("Ngày chưa đúng");
+    const kind = input.kind.trim();
+    if (!["phep", "om", "thaisan", "khac"].includes(kind)) throw new Error("Loại nghỉ không hợp lệ");
+    const note = input.note.trim().slice(0, 300);
+    if (note.length < 3) throw new Error("Cần ghi chú lý do");
+    return { leaveDate, kind, note };
+  })
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) => {
+    const profile = await requireProfile(context.userId);
+    await assertMonthOpen(profile.companyId, data.leaveDate);
+    const sql = await getSql();
+    await sql`
+      insert into leave_requests (user_id, company_id, leave_date, kind, note)
+      values (${profile.userId}, ${profile.companyId}, ${data.leaveDate}::date, ${data.kind}, ${data.note})
+    `;
+    return { ok: true };
+  });
+
+export const reviewLeave = createServerFn({ method: "POST" })
+  .validator((input: { id: number; decision: "approved" | "rejected"; reviewNote: string }) => {
+    const id = Number(input.id);
+    if (!Number.isInteger(id) || id <= 0) throw new Error("Đơn không hợp lệ");
+    if (input.decision !== "approved" && input.decision !== "rejected") throw new Error("Quyết định không hợp lệ");
+    return { id, decision: input.decision, reviewNote: (input.reviewNote ?? "").trim().slice(0, 300) };
+  })
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) => {
+    const profile = await requireProfile(context.userId);
+    if (!canReview(profile.role)) throw new Error("Bạn không có quyền duyệt");
+    const sql = await getSql();
+    const rows = await sql<{ user_id: string; leave_date: unknown; status: string }>`
+      select user_id, leave_date, status from leave_requests where id = ${data.id} and company_id = ${profile.companyId}
+    `;
+    const row = rows[0];
+    if (!row || row.status !== "pending") throw new Error("Đơn không còn chờ duyệt");
+    if (row.user_id === profile.userId) throw new Error("Không tự duyệt đơn của mình");
+    if (data.decision === "approved") {
+      await assertMonthOpen(profile.companyId, dateOnly(row.leave_date));
+    }
+    await sql`
+      update leave_requests
+      set status = ${data.decision}, reviewed_by = ${profile.userId}, reviewed_at = now(), review_note = ${data.reviewNote || null}
+      where id = ${data.id} and status = 'pending'
+    `;
+    return { ok: true };
+  });
+
+export const saveHoliday = createServerFn({ method: "POST" })
+  .validator((input: { date: string; name: string; remove?: boolean }) => {
+    const date = input.date.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Ngày chưa đúng");
+    const name = input.name.trim().slice(0, 80);
+    if (!input.remove && name.length < 2) throw new Error("Đặt tên ngày lễ");
+    return { date, name, remove: Boolean(input.remove) };
+  })
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) => {
+    const profile = await requireProfile(context.userId);
+    if (profile.role !== "admin") throw new Error("Chỉ quản trị được sửa ngày lễ");
+    const sql = await getSql();
+    if (data.remove) {
+      await sql`delete from holidays where company_id = ${profile.companyId} and date = ${data.date}::date`;
+    } else {
+      await sql`
+        insert into holidays (company_id, date, name) values (${profile.companyId}, ${data.date}::date, ${data.name})
+        on conflict (company_id, date) do update set name = excluded.name
+      `;
+    }
+    return { ok: true };
   });

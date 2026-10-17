@@ -168,6 +168,7 @@ export function PunchPanel({
   const [result, setResult] = useState<PunchResult | null>(null);
   const [geoFailed, setGeoFailed] = useState<"in" | "out" | null>(null);
   const [pendingPhoto, setPendingPhoto] = useState("");
+  const [pendingLoc, setPendingLoc] = useState<{ lat: number; lng: number } | null>(null);
   const active = data.locations.filter((loc) => loc.isActive);
   const last = data.today[data.today.length - 1];
   const clock = useClock();
@@ -189,6 +190,38 @@ export function PunchPanel({
     } finally {
       setBusy(false);
     }
+  }
+
+  function locateFirst(type: "in" | "out") {
+    setBusy(true);
+    setError("");
+    setPendingLoc(null);
+    if (!navigator.geolocation) {
+      setGeoFailed(type);
+      setBusy(false);
+      setError("Máy không có GPS.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const acc = pos.coords.accuracy;
+        if (acc != null && acc > 150) {
+          setGeoFailed(type);
+          setBusy(false);
+          setError(`GPS không chính xác (sai số ~${Math.round(acc)} m). Ra nơi thoáng hơn rồi thử lại.`);
+          return;
+        }
+        setPendingLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setCameraFor(type);
+        setBusy(false);
+      },
+      () => {
+        setGeoFailed(type);
+        setBusy(false);
+        setError("Chưa lấy được GPS. Bật định vị rồi thử lại.");
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
   }
 
   function locateThenSubmit(type: "in" | "out", photo: string) {
@@ -266,7 +299,7 @@ export function PunchPanel({
         <button
           type="button"
           disabled={busy || (!data.settings.allowOffsite && active.length === 0)}
-          onClick={() => setCameraFor(primary)}
+          onClick={() => locateFirst(primary)}
           aria-label={busy ? "Đang ghi" : primary === "in" ? "Vào ca" : "Ra ca"}
           className="punch-float mx-auto mt-10 disabled:opacity-40"
         >
@@ -342,7 +375,12 @@ export function PunchPanel({
           onShot={(photo) => {
             const type = cameraFor;
             setCameraFor(null);
-            locateThenSubmit(type, photo);
+            if (pendingLoc) {
+              void submit(type, pendingLoc.lat, pendingLoc.lng, photo, "gps");
+              setPendingLoc(null);
+            } else {
+              locateThenSubmit(type, photo);
+            }
           }}
         />
       ) : null}
@@ -401,7 +439,7 @@ export function ProfilePanel({
   const [employeeCode, setEmployeeCode] = useState(data.profile.employeeCode ?? "");
   const [department, setDepartment] = useState(data.profile.department ?? "");
   const [jobTitle, setJobTitle] = useState(data.profile.jobTitle ?? "");
-  const [startedOn, setStartedOn] = useState(data.profile.startedOn ?? "");
+
   const [avatar, setAvatar] = useState(data.profile.avatar ?? "");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -497,8 +535,7 @@ export function ProfilePanel({
           <input className={fieldClass} value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} maxLength={60} placeholder="VD: Chuyên viên" />
         </label>
         <label className="block space-y-1 text-sm">
-          Ngày vào làm
-          <input className={fieldClass} type="date" value={startedOn} max={vnDateKey()} onChange={(e) => setStartedOn(e.target.value)} />
+
         </label>
         {error ? <p className="text-sm text-clay">{error}</p> : null}
         {saved ? <p className="text-sm text-ok">Đã lưu hồ sơ.</p> : null}

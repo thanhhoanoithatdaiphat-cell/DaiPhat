@@ -67,7 +67,18 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
       .filter((p) => !query || p.fullName.toLowerCase().includes(query.toLowerCase()))
       .map((p) => {
         const cells = days.map((d) =>
-          buildCell({ dateKey: d, punches: grid.punches[p.userId]?.[d] ?? [], todayKey: grid.todayKey, startedOn: p.startedOn, lateThreshold: data.settings.lateMinutes, hm: vnTime }),
+          buildCell({
+            dateKey: d,
+            punches: grid.punches[p.userId]?.[d] ?? [],
+            todayKey: grid.todayKey,
+            startedOn: p.startedOn,
+            endedOn: p.endedOn,
+            isHoliday: grid.holidays?.includes(d) ?? false,
+            hasApprovedLeave: !!grid.leaves?.[p.userId]?.[d],
+            leaveKind: grid.leaves?.[p.userId]?.[d] ?? null,
+            lateThreshold: data.settings.lateMinutes,
+            hm: vnTime,
+          }),
         );
         return { person: p, cells, sum: summarize(cells) };
       });

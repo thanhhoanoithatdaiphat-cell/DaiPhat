@@ -124,6 +124,8 @@ export type MonthPerson = {
   department: string | null;
   role: Role;
   startedOn: string | null;
+  endedOn?: string | null;
+  isActive?: boolean;
 };
 
 export type MonthGrid = {
@@ -132,5 +134,7 @@ export type MonthGrid = {
   people: MonthPerson[];
   /** userId -> yyyy-mm-dd -> các lần chấm trong ngày */
   punches: Record<string, Record<string, MonthPunch[]>>;
+  holidays?: string[];
+  leaves?: Record<string, Record<string, string>>;
   lock: { lockedAt: string; lockedByName: string } | null;
 };

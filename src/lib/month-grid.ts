@@ -44,6 +44,10 @@ export function buildCell(input: {
   punches: MonthPunch[];
   todayKey: string;
   startedOn: string | null;
+  endedOn?: string | null;
+  isHoliday?: boolean;
+  hasApprovedLeave?: boolean;
+  leaveKind?: string | null;
   /** Ngưỡng đi muộn của công ty (phút). Muộn khi số phút >= ngưỡng, giống các màn khác. */
   lateThreshold: number;
   hm: (iso: string) => string;
@@ -62,6 +66,9 @@ export function buildCell(input: {
     if (dateKey > todayKey) return { ...base, kind: "future", label: "" };
     if (weekdayOf(dateKey) === 0) return { ...base, kind: "off", label: "" };
     if (startedOn && dateKey < startedOn) return { ...base, kind: "off", label: "" };
+    if (input.endedOn && dateKey > input.endedOn) return { ...base, kind: "off", label: "" };
+    if (input.isHoliday) return { ...base, kind: "off", label: "L" };
+    if (input.hasApprovedLeave) return { ...base, kind: "off", label: input.leaveKind === "om" ? "Ố" : input.leaveKind === "thaisan" ? "T" : "P" };
     if (dateKey === todayKey) return { ...base, kind: "future", label: "" };
     return { ...base, kind: "absent", label: "V" };
   }

@@ -18,6 +18,7 @@ import {
   saveCompany,
   saveLocation,
   setRole,
+  adminUpdateProfile,
   updateProfile,
 } from "@/lib/attendance.functions";
 import type {
@@ -1002,6 +1003,13 @@ export function ManagePanel({ data, onChanged }: { data: WorkspaceData; onChange
       <OvertimeQueue rows={data.overtimePending} onChanged={onChanged} />
       {data.settings.allowOffsite || data.offsiteToday.length > 0 ? <OffsiteReport rows={data.offsiteToday} /> : null}
       <TimesheetExport />
+      <section className="rounded-lg border-[1.5px] border-ink bg-card p-4">
+        <h2 className="font-display text-2xl font-semibold">Nhân sự</h2>
+        <p className="mt-1 text-sm text-muted">Danh sách tất cả thành viên. Quản trị bấm “Sửa” để cập nhật hồ sơ hoặc khóa tài khoản.</p>
+        <div className="mt-3">
+          <PeopleEditor people={data.teamToday} selfId={data.profile.userId} onChanged={onChanged} />
+        </div>
+      </section>
       {isAdmin ? (
         <details className="rounded-lg border-[1.5px] border-ink bg-card p-4">
           <summary className="font-display cursor-pointer text-2xl font-semibold">Cài đặt công ty</summary>
@@ -1009,7 +1017,6 @@ export function ManagePanel({ data, onChanged }: { data: WorkspaceData; onChange
             <InviteCodeCard />
             <SettingsForm data={data} onChanged={onChanged} />
             <LocationEditor locations={data.locations} onChanged={onChanged} />
-            <PeopleEditor people={data.teamToday} selfId={data.profile.userId} onChanged={onChanged} />
           </div>
         </details>
       ) : null}
@@ -1428,6 +1435,125 @@ function contactLine(person: PersonRow): string {
   return person.email ?? "Chưa có số";
 }
 
+function PersonCard({
+  person,
+  selfId,
+  onChanged,
+}: {
+  person: PersonRow;
+  selfId: string;
+  onChanged: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [fullName, setFullName] = useState(person.fullName);
+  const [employeeCode, setEmployeeCode] = useState(person.employeeCode ?? "");
+  const [department, setDepartment] = useState(person.department ?? "");
+  const [jobTitle, setJobTitle] = useState(person.jobTitle ?? "");
+  const [startedOn, setStartedOn] = useState(person.startedOn ?? "");
+  const [endedOn, setEndedOn] = useState(person.endedOn ?? "");
+  const [isActive, setIsActive] = useState(person.isActive !== false);
+
+  async function changeRole(role: Role) {
+    setError("");
+    try {
+      await setRole({ data: { userId: person.userId, role } });
+      await onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }
+
+  async function saveProfile(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await adminUpdateProfile({
+        data: {
+          userId: person.userId,
+          fullName,
+          employeeCode,
+          department,
+          jobTitle,
+          startedOn,
+          isActive,
+          endedOn,
+        },
+      });
+      await onChanged();
+      setOpen(false);
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <article className="rounded-md border border-line bg-card px-4 py-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-medium">{person.fullName}{person.userId === selfId ? " (bạn)" : ""}{isActive ? "" : " · đã nghỉ"}</p>
+          <p className="text-sm text-muted">{contactLine(person)}</p>
+          {person.department || person.employeeCode ? (
+            <p className="text-xs text-muted">{[person.employeeCode, person.department, person.jobTitle].filter(Boolean).join(" · ")}</p>
+          ) : null}
+        </div>
+        <button type="button" className="text-sm text-ink underline" onClick={() => setOpen((v) => !v)}>
+          {open ? "Đóng" : "Sửa"}
+        </button>
+      </div>
+      <select
+        className={`${fieldClass} mt-2`}
+        value={person.role}
+        onChange={(e) => void changeRole(e.target.value as Role)}
+      >
+        <option value="employee">Nhân viên</option>
+        <option value="approver">Người duyệt</option>
+        <option value="admin">Quản trị</option>
+      </select>
+      {open ? (
+        <form onSubmit={saveProfile} className="mt-3 space-y-2 border-t border-line pt-3">
+          <label className="block text-sm">
+            Họ tên
+            <input className={fieldClass} value={fullName} onChange={(e) => setFullName(e.target.value)} required />
+          </label>
+          <label className="block text-sm">
+            Mã nhân viên
+            <input className={fieldClass} value={employeeCode} onChange={(e) => setEmployeeCode(e.target.value)} />
+          </label>
+          <label className="block text-sm">
+            Phòng ban
+            <input className={fieldClass} value={department} onChange={(e) => setDepartment(e.target.value)} />
+          </label>
+          <label className="block text-sm">
+            Chức danh
+            <input className={fieldClass} value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
+          </label>
+          <label className="block text-sm">
+            Ngày vào làm
+            <input className={fieldClass} type="date" value={startedOn} onChange={(e) => setStartedOn(e.target.value)} />
+          </label>
+          <label className="block text-sm">
+            Ngày nghỉ việc
+            <input className={fieldClass} type="date" value={endedOn} onChange={(e) => setEndedOn(e.target.value)} />
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+            Đang làm việc
+          </label>
+          {error ? <p className="text-sm text-clay">{error}</p> : null}
+          <button type="submit" className={primaryBtn} disabled={busy}>
+            {busy ? "Đang lưu…" : "Lưu hồ sơ"}
+          </button>
+        </form>
+      ) : null}
+    </article>
+  );
+}
+
 export function PeopleEditor({
   people,
   selfId,
@@ -1438,34 +1564,13 @@ export function PeopleEditor({
   onChanged: () => Promise<void>;
 }) {
   const [error, setError] = useState("");
-  async function change(userId: string, role: Role) {
-    setError("");
-    try {
-      await setRole({ data: { userId, role } });
-      await onChanged();
-    } catch (err) {
-      setError(errorText(err));
-    }
-  }
   return (
     <section className="space-y-2">
-      <h2 className="font-semibold">Người trong công ty</h2>
-      <p className="text-sm text-muted">Giữ 1–2 người duyệt. Người tạo tài khoản đầu tiên là quản trị.</p>
+      <h2 className="font-semibold">Tất cả thành viên</h2>
+      <p className="text-sm text-muted">Bấm “Sửa” cạnh tên để xem và chỉnh mã nhân viên, phòng ban, ngày vào làm, hoặc khóa tài khoản.</p>
       {error ? <p className="text-sm text-clay">{error}</p> : null}
       {people.map((person) => (
-        <article key={person.userId} className="rounded-md border border-line bg-card px-4 py-3">
-          <p className="font-medium">{person.fullName}{person.userId === selfId ? " (bạn)" : ""}</p>
-          <p className="text-sm text-muted">{contactLine(person)}</p>
-          <select
-            className={`${fieldClass} mt-2`}
-            value={person.role}
-            onChange={(e) => void change(person.userId, e.target.value as Role)}
-          >
-            <option value="employee">Nhân viên</option>
-            <option value="approver">Người duyệt</option>
-            <option value="admin">Quản trị</option>
-          </select>
-        </article>
+        <PersonCard key={person.userId} person={person} selfId={selfId} onChanged={onChanged} />
       ))}
     </section>
   );

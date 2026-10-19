@@ -2,7 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql } from "@/lib/db";
 import type {
+  AuditEvent,
   CorrectionRow,
+  HistoryData,
   HolidayRow,
   LeaveKind,
   LeaveRow,
@@ -21,6 +23,7 @@ import type {
 import { dayRange, hmToMinutes, isEarlyOut, minutesToHm, monthRange, vnDateKey, vnMinutes, vnWeekday } from "@/lib/vn-time";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
 import { congOf, workedMinutes as sumWorked, type MonthPunch } from "@/lib/month-grid";
+import { HISTORY_MAX_DAYS } from "@/lib/attendance-types";
 
 const COMPANY_ID = "co-default";
 const PHOTO_MAX = 180_000;
@@ -1172,7 +1175,10 @@ export const reviewOvertime = createServerFn({ method: "POST" })
       }
     await assertMonthOpen(profile.companyId, vnDateKey(stamp(row.punched_at)));
     await sql`
-      update attendances set overtime_status = ${data.decision}
+      update attendances
+      set overtime_status = ${data.decision},
+          overtime_reviewed_by = ${profile.userId},
+          overtime_reviewed_at = now()
       where id = ${data.id} and company_id = ${profile.companyId} and overtime_status = 'pending'
     `;
     return { ok: true };
@@ -1474,6 +1480,201 @@ export const getMonthGrid = createServerFn({ method: "POST" })
         ? { lockedAt: stamp(locks[0].locked_at), lockedByName: locks[0].full_name ?? "Quản trị" }
         : null,
     };
+  });
+
+const HISTORY_ROW_LIMIT = 20000;
+
+function assertRange(input: { from: string; to: string }): { from: string; to: string } {
+  const ok = (s: unknown) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`));
+  if (!ok(input?.from) || !ok(input?.to)) throw new Error("Khoảng ngày không hợp lệ");
+  if (input.from > input.to) throw new Error("Ngày bắt đầu phải trước ngày kết thúc");
+  const days = (Date.parse(`${input.to}T00:00:00Z`) - Date.parse(`${input.from}T00:00:00Z`)) / 86400000 + 1;
+  if (days > HISTORY_MAX_DAYS) throw new Error(`Chỉ xem tối đa ${HISTORY_MAX_DAYS} ngày mỗi lần`);
+  return { from: input.from, to: input.to };
+}
+
+/** Toàn bộ lịch sử chấm công của công ty trong khoảng ngày — chỉ quản trị và người duyệt. */
+export const getHistory = createServerFn({ method: "POST" })
+  .validator((input: { from: string; to: string }) => assertRange(input))
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }): Promise<HistoryData> => {
+    const profile = await requireProfile(context.userId);
+    if (!canReview(profile.role)) throw new Error("Chỉ quản trị và người duyệt xem được lịch sử chấm công");
+    const sql = await getSql();
+    const start = dayRange(data.from).start;
+    const end = dayRange(data.to).end;
+    const people = await sql<{
+      user_id: string;
+      full_name: string;
+      employee_code: string | null;
+      department: string | null;
+      role: Role;
+      started_on: unknown;
+      ended_on: unknown;
+      is_active: boolean;
+    }>`
+      select user_id, full_name, employee_code, department, role, started_on, ended_on, is_active
+      from profiles where company_id = ${profile.companyId}
+      order by full_name asc
+    `;
+    const rows = await sql<{
+      id: number;
+      user_id: string;
+      type: "in" | "out";
+      punched_at: unknown;
+      status: "valid" | "corrected";
+      nearest_name: string | null;
+      distance_meters: number | null;
+      offsite: boolean;
+      late_minutes: number;
+      overtime_minutes: number;
+      overtime_status: OvertimeStatus;
+      has_photo: boolean;
+    }>`
+      select id, user_id, type, punched_at, status, nearest_name, distance_meters, offsite,
+             late_minutes, overtime_minutes, overtime_status,
+             (photo_data is not null and photo_data <> '') as has_photo
+      from attendances
+      where company_id = ${profile.companyId}
+        and punched_at >= ${start}::timestamptz
+        and punched_at < ${end}::timestamptz
+        and status in ('valid', 'corrected')
+      order by punched_at asc
+      limit ${HISTORY_ROW_LIMIT + 1}
+    `;
+    const truncated = rows.length > HISTORY_ROW_LIMIT;
+    const punches: HistoryData["punches"] = {};
+    for (const row of rows.slice(0, HISTORY_ROW_LIMIT)) {
+      const at = stamp(row.punched_at);
+      const item: MonthPunch = {
+        id: Number(row.id),
+        type: row.type,
+        at,
+        status: row.status,
+        offsite: Boolean(row.offsite),
+        lateMinutes: Number(row.late_minutes ?? 0),
+        overtimeMinutes: Number(row.overtime_minutes ?? 0),
+        overtimeStatus: row.overtime_status ?? "none",
+        nearestName: row.nearest_name,
+        distanceMeters: row.distance_meters == null ? null : Number(row.distance_meters),
+        hasPhoto: Boolean(row.has_photo),
+      };
+      ((punches[row.user_id] ??= {})[vnDateKey(at)] ??= []).push(item);
+    }
+    const holidayRows = await sql<{ date: unknown }>`
+      select date from holidays where company_id = ${profile.companyId}
+        and date >= ${data.from}::date and date <= ${data.to}::date
+    `;
+    const leaveRows = await sql<{ user_id: string; leave_date: unknown; kind: string }>`
+      select user_id, leave_date, kind from leave_requests
+      where company_id = ${profile.companyId} and status = 'approved'
+        and leave_date >= ${data.from}::date and leave_date <= ${data.to}::date
+    `;
+    const leaves: HistoryData["leaves"] = {};
+    for (const r of leaveRows) (leaves[r.user_id] ??= {})[dateOnly(r.leave_date)] = r.kind;
+    const lockRows = await sql<{ month: string }>`
+      select month from timesheet_locks
+      where company_id = ${profile.companyId} and month >= ${data.from.slice(0, 7)} and month <= ${data.to.slice(0, 7)}
+    `;
+    return {
+      from: data.from,
+      to: data.to,
+      todayKey: vnDateKey(),
+      people: people.map((p) => ({
+        userId: p.user_id,
+        fullName: p.full_name,
+        employeeCode: p.employee_code,
+        department: p.department,
+        role: p.role,
+        startedOn: p.started_on ? dateOnly(p.started_on) : null,
+        endedOn: p.ended_on ? dateOnly(p.ended_on) : null,
+        isActive: Boolean(p.is_active),
+      })),
+      punches,
+      holidays: holidayRows.map((r) => dateOnly(r.date)),
+      leaves,
+      lockedMonths: lockRows.map((r) => r.month),
+      truncated,
+    };
+  });
+
+/** Nhật ký duyệt: đơn sửa công, đơn nghỉ, tăng ca — ai xin, ai duyệt, khi nào. */
+export const listAudit = createServerFn({ method: "POST" })
+  .validator((input: { from: string; to: string }) => assertRange(input))
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }): Promise<AuditEvent[]> => {
+    const profile = await requireProfile(context.userId);
+    if (!canReview(profile.role)) throw new Error("Chỉ quản trị và người duyệt xem được nhật ký duyệt");
+    const sql = await getSql();
+    const start = dayRange(data.from).start;
+    const end = dayRange(data.to).end;
+    const corr = await sql<{
+      id: number; user_id: string; full_name: string; attendance_date: unknown; punch_type: "in" | "out";
+      requested_time: string; kind: string; note: string; status: "pending" | "approved" | "rejected";
+      review_note: string | null; created_at: unknown; reviewed_at: unknown; reviewer_name: string | null;
+    }>`
+      select c.id, c.user_id, p.full_name, c.attendance_date, c.punch_type, c.requested_time, c.kind, c.note,
+             c.status, c.review_note, c.created_at, c.reviewed_at, r.full_name as reviewer_name
+      from correction_requests c
+      join profiles p on p.user_id = c.user_id
+      left join profiles r on r.user_id = c.reviewed_by
+      where c.company_id = ${profile.companyId}
+        and c.attendance_date >= ${data.from}::date and c.attendance_date <= ${data.to}::date
+      order by c.created_at desc limit 2000
+    `;
+    const leave = await sql<{
+      id: number; user_id: string; full_name: string; leave_date: unknown; kind: string; note: string;
+      status: "pending" | "approved" | "rejected"; review_note: string | null; created_at: unknown;
+      reviewed_at: unknown; reviewer_name: string | null;
+    }>`
+      select l.id, l.user_id, p.full_name, l.leave_date, l.kind, l.note, l.status, l.review_note,
+             l.created_at, l.reviewed_at, r.full_name as reviewer_name
+      from leave_requests l
+      join profiles p on p.user_id = l.user_id
+      left join profiles r on r.user_id = l.reviewed_by
+      where l.company_id = ${profile.companyId}
+        and l.leave_date >= ${data.from}::date and l.leave_date <= ${data.to}::date
+      order by l.created_at desc limit 2000
+    `;
+    const ot = await sql<{
+      id: number; user_id: string; full_name: string; punched_at: unknown; overtime_minutes: number;
+      overtime_status: "approved" | "rejected" | "pending"; reviewed_at: unknown; reviewer_name: string | null;
+    }>`
+      select a.id, a.user_id, p.full_name, a.punched_at, a.overtime_minutes, a.overtime_status,
+             a.overtime_reviewed_at as reviewed_at, r.full_name as reviewer_name
+      from attendances a
+      join profiles p on p.user_id = a.user_id
+      left join profiles r on r.user_id = a.overtime_reviewed_by
+      where a.company_id = ${profile.companyId}
+        and a.overtime_status in ('pending', 'approved', 'rejected')
+        and a.punched_at >= ${start}::timestamptz and a.punched_at < ${end}::timestamptz
+      order by a.punched_at desc limit 2000
+    `;
+    const KIND: Record<string, string> = { quen: "Quên chấm", gps: "Lỗi GPS", congtac: "Đi công tác", khac: "Khác" };
+    const LEAVE: Record<string, string> = { phep: "Nghỉ phép", om: "Nghỉ ốm", thaisan: "Thai sản", khac: "Nghỉ khác" };
+    const events: AuditEvent[] = [
+      ...corr.map((c): AuditEvent => ({
+        key: `c${c.id}`, kind: "correction", status: c.status, userId: c.user_id, fullName: c.full_name,
+        date: dateOnly(c.attendance_date),
+        subject: `${KIND[c.kind] ?? c.kind} · xin sửa giờ ${c.punch_type === "in" ? "vào" : "ra"} ${c.requested_time}`,
+        note: c.note, reviewNote: c.review_note, createdAt: stamp(c.created_at),
+        reviewedByName: c.reviewer_name, reviewedAt: c.reviewed_at ? stamp(c.reviewed_at) : null,
+      })),
+      ...leave.map((l): AuditEvent => ({
+        key: `l${l.id}`, kind: "leave", status: l.status, userId: l.user_id, fullName: l.full_name,
+        date: dateOnly(l.leave_date), subject: LEAVE[l.kind] ?? "Nghỉ",
+        note: l.note, reviewNote: l.review_note, createdAt: stamp(l.created_at),
+        reviewedByName: l.reviewer_name, reviewedAt: l.reviewed_at ? stamp(l.reviewed_at) : null,
+      })),
+      ...ot.map((o): AuditEvent => ({
+        key: `o${o.id}`, kind: "overtime", status: o.overtime_status, userId: o.user_id, fullName: o.full_name,
+        date: vnDateKey(stamp(o.punched_at)), subject: `Tăng ca ${minutesToHm(Number(o.overtime_minutes))}`,
+        note: "", reviewNote: null, createdAt: stamp(o.punched_at),
+        reviewedByName: o.reviewer_name, reviewedAt: o.reviewed_at ? stamp(o.reviewed_at) : null,
+      })),
+    ];
+    events.sort((a, b) => (b.reviewedAt ?? b.createdAt ?? "").localeCompare(a.reviewedAt ?? a.createdAt ?? ""));
+    return events;
   });
 
 export const lockMonth = createServerFn({ method: "POST" })

@@ -3,7 +3,7 @@ import { Landing } from "@/components/landing";
 import { AdminApp, type AdminView } from "@/components/admin/app";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
-const VIEWS: AdminView[] = ["overview", "inbox", "month", "employees", "settings"];
+const VIEWS: AdminView[] = ["overview", "inbox", "month", "history", "employees", "settings"];
 
 export const Route = createFileRoute("/admin")({
   validateSearch: (search: Record<string, unknown>): { view: AdminView } => ({

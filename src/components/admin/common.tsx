@@ -37,7 +37,7 @@ export function Chip({ tone, children }: { tone: "ink" | "ok" | "late" | "clay" 
     clay: "bg-clay text-card",
     muted: "bg-sand text-muted",
   }[tone];
-  return <span className={`inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-semibold ${cls}`}>{children}</span>;
+  return <span className={`inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-semibold whitespace-nowrap ${cls}`}>{children}</span>;
 }
 
 export function Card({ title, action, children, className = "" }: { title?: string; action?: ReactNode; children: ReactNode; className?: string }) {

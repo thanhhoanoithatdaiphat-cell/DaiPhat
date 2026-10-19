@@ -156,6 +156,41 @@ export type MonthPerson = {
   isActive?: boolean;
 };
 
+/** Dữ liệu chấm công của một khoảng ngày bất kỳ (tối đa HISTORY_MAX_DAYS ngày). */
+export type HistoryData = {
+  from: string;
+  to: string;
+  todayKey: string;
+  people: MonthPerson[];
+  /** userId -> yyyy-mm-dd -> các lần chấm trong ngày */
+  punches: Record<string, Record<string, MonthPunch[]>>;
+  holidays: string[];
+  leaves: Record<string, Record<string, string>>;
+  /** Các tháng trong khoảng đã chốt công. */
+  lockedMonths: string[];
+  /** true khi số lượt chấm vượt giới hạn và danh sách bị cắt bớt. */
+  truncated: boolean;
+};
+
+export const HISTORY_MAX_DAYS = 93;
+
+export type AuditEvent = {
+  key: string;
+  kind: "correction" | "leave" | "overtime";
+  status: "pending" | "approved" | "rejected";
+  userId: string;
+  fullName: string;
+  /** Ngày công mà sự kiện áp dụng (yyyy-mm-dd). */
+  date: string;
+  /** Mô tả ngắn: loại đơn, giờ xin sửa, số phút tăng ca… */
+  subject: string;
+  note: string;
+  reviewNote: string | null;
+  createdAt: string | null;
+  reviewedByName: string | null;
+  reviewedAt: string | null;
+};
+
 export type MonthGrid = {
   month: string;
   todayKey: string;

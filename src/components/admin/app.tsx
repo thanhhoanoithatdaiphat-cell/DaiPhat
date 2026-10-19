@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useState, type ComponentType } from "react";
 import { Link } from "@tanstack/react-router";
-import { CalendarDays, Inbox, LayoutDashboard, Settings2, Smartphone, Users } from "lucide-react";
+import { CalendarDays, History, Inbox, LayoutDashboard, Settings2, Smartphone, Users } from "lucide-react";
 import { errorText } from "@/components/ui";
 import { UserButton } from "@/lib/auth/gates";
 import { getWorkspace, listCorrections, listLeaves } from "@/lib/attendance.functions";
 import type { CorrectionRow, LeaveRow, WorkspaceData } from "@/lib/attendance-types";
 import { todayLong } from "@/lib/vn-time";
 import { EmployeesView } from "./employees";
+import { HistoryView } from "./history";
 import { InboxView } from "./inbox";
 import { MonthView } from "./month";
 import { OverviewView } from "./overview";
 import { SettingsView } from "./settings";
 
-export type AdminView = "overview" | "inbox" | "month" | "employees" | "settings";
+export type AdminView = "overview" | "inbox" | "month" | "history" | "employees" | "settings";
 
 export type AdminCtx = {
   data: WorkspaceData;
@@ -85,6 +86,7 @@ export function AdminApp({ user, view, onView }: { user: AppUser; view: AdminVie
     { id: "overview", label: "Tổng quan", icon: LayoutDashboard },
     { id: "inbox", label: "Cần duyệt", icon: Inbox, badge: pendingTotal },
     { id: "month", label: "Bảng công", icon: CalendarDays },
+    { id: "history", label: "Lịch sử", icon: History },
   ];
   if (role === "admin") {
     items.push({ id: "employees", label: "Nhân viên", icon: Users });
@@ -145,6 +147,7 @@ export function AdminApp({ user, view, onView }: { user: AppUser; view: AdminVie
           {current === "overview" ? <OverviewView ctx={ctx} /> : null}
           {current === "inbox" ? <InboxView ctx={ctx} /> : null}
           {current === "month" ? <MonthView ctx={ctx} /> : null}
+          {current === "history" ? <HistoryView ctx={ctx} /> : null}
           {current === "employees" ? <EmployeesView ctx={ctx} /> : null}
           {current === "settings" ? <SettingsView ctx={ctx} /> : null}
         </main>

@@ -15,9 +15,39 @@ export type MonthPunch = {
 
 export type CellKind = "ok" | "late" | "partial" | "absent" | "off" | "future";
 
+export const DEFAULT_FULL_DAY_MINUTES = 420;
+export const DEFAULT_HALF_DAY_MINUTES = 240;
+
+/** Cộng từng đoạn vào–ra trong ngày (đoạn chưa ra ca không tính). */
+export function workedMinutes(punches: { type: "in" | "out"; at: string }[]): number {
+  const sorted = [...punches].sort((a, b) => a.at.localeCompare(b.at));
+  let total = 0;
+  let openIn: number | null = null;
+  for (const p of sorted) {
+    const t = new Date(p.at).getTime();
+    if (p.type === "in") openIn = t;
+    else if (openIn != null) {
+      total += Math.max(0, (t - openIn) / 60000);
+      openIn = null;
+    }
+  }
+  return Math.round(total);
+}
+
+/** 1 công khi đủ `full` phút, 0.5 công khi đủ `half` phút, còn lại 0. */
+export function congOf(minutes: number, full: number, half: number): 0 | 0.5 | 1 {
+  if (minutes >= full) return 1;
+  if (minutes >= half) return 0.5;
+  return 0;
+}
+
 export type DayCell = {
   kind: CellKind;
   label: string;
+  /** Số phút làm thực tế trong ngày. */
+  workedMinutes: number;
+  /** Công của ngày; null khi không áp dụng (nghỉ, lễ, chưa tới, đang làm). */
+  cong: number | null;
   firstIn: string | null;
   lastOut: string | null;
   lateMinutes: number;
@@ -50,10 +80,16 @@ export function buildCell(input: {
   leaveKind?: string | null;
   /** Ngưỡng đi muộn của công ty (phút). Muộn khi số phút >= ngưỡng, giống các màn khác. */
   lateThreshold: number;
+  fullDayMinutes?: number;
+  halfDayMinutes?: number;
   hm: (iso: string) => string;
 }): DayCell {
   const { dateKey, punches, todayKey, startedOn, lateThreshold, hm } = input;
+  const full = input.fullDayMinutes ?? DEFAULT_FULL_DAY_MINUTES;
+  const half = input.halfDayMinutes ?? DEFAULT_HALF_DAY_MINUTES;
   const base = {
+    workedMinutes: 0,
+    cong: null as number | null,
     firstIn: null,
     lastOut: null,
     lateMinutes: 0,
@@ -70,12 +106,15 @@ export function buildCell(input: {
     if (input.isHoliday) return { ...base, kind: "off", label: "L" };
     if (input.hasApprovedLeave) return { ...base, kind: "off", label: input.leaveKind === "om" ? "Ố" : input.leaveKind === "thaisan" ? "T" : "P" };
     if (dateKey === todayKey) return { ...base, kind: "future", label: "" };
-    return { ...base, kind: "absent", label: "V" };
+    return { ...base, cong: 0, kind: "absent", label: "V" };
   }
   const sorted = [...punches].sort((a, b) => a.at.localeCompare(b.at));
   const first = sorted.find((p) => p.type === "in") ?? null;
   const last = [...sorted].reverse().find((p) => p.type === "out") ?? null;
+  const worked = workedMinutes(sorted);
   const cell = {
+    workedMinutes: worked,
+    cong: congOf(worked, full, half) as number | null,
     firstIn: first?.at ?? null,
     lastOut: last?.at ?? null,
     lateMinutes: first?.lateMinutes ?? 0,
@@ -86,18 +125,31 @@ export function buildCell(input: {
   };
   const stillWorking = dateKey === todayKey && first && !last;
   if (!first || (!last && !stillWorking)) {
-    return { ...cell, kind: "partial", label: first ? hm(first.at) : "?" };
+    return { ...cell, cong: 0, kind: "partial", label: first ? hm(first.at) : "?" };
   }
+  if (stillWorking) cell.cong = null;
   const lateBy = first.lateMinutes ?? 0;
   if (lateBy > 0 && lateBy >= lateThreshold) return { ...cell, kind: "late", label: hm(first.at) };
   return { ...cell, kind: "ok", label: hm(first.at) };
 }
 
-export type PersonSummary = { days: number; late: number; absent: number; partial: number; overtimeMinutes: number };
+export type PersonSummary = {
+  days: number;
+  cong: number;
+  leave: number;
+  holiday: number;
+  late: number;
+  absent: number;
+  partial: number;
+  overtimeMinutes: number;
+};
 
 export function summarize(cells: DayCell[]): PersonSummary {
-  const s: PersonSummary = { days: 0, late: 0, absent: 0, partial: 0, overtimeMinutes: 0 };
+  const s: PersonSummary = { days: 0, cong: 0, leave: 0, holiday: 0, late: 0, absent: 0, partial: 0, overtimeMinutes: 0 };
   for (const c of cells) {
+    if (c.cong != null && (c.kind === "ok" || c.kind === "late")) s.cong += c.cong;
+    if (c.kind === "off" && c.label === "L") s.holiday += 1;
+    if (c.kind === "off" && (c.label === "P" || c.label === "Ố" || c.label === "T")) s.leave += 1;
     if (c.kind === "ok" || c.kind === "late") s.days += 1;
     if (c.kind === "late") s.late += 1;
     if (c.kind === "absent") s.absent += 1;

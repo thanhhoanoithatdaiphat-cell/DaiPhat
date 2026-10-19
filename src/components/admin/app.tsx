@@ -1,21 +1,23 @@
 import { useCallback, useEffect, useState, type ComponentType } from "react";
 import { Link } from "@tanstack/react-router";
-import { CalendarDays, Inbox, LayoutDashboard, Settings2, Smartphone } from "lucide-react";
+import { CalendarDays, Inbox, LayoutDashboard, Settings2, Smartphone, Users } from "lucide-react";
 import { errorText } from "@/components/ui";
 import { UserButton } from "@/lib/auth/gates";
-import { getWorkspace, listCorrections } from "@/lib/attendance.functions";
-import type { CorrectionRow, WorkspaceData } from "@/lib/attendance-types";
+import { getWorkspace, listCorrections, listLeaves } from "@/lib/attendance.functions";
+import type { CorrectionRow, LeaveRow, WorkspaceData } from "@/lib/attendance-types";
 import { todayLong } from "@/lib/vn-time";
+import { EmployeesView } from "./employees";
 import { InboxView } from "./inbox";
 import { MonthView } from "./month";
 import { OverviewView } from "./overview";
 import { SettingsView } from "./settings";
 
-export type AdminView = "overview" | "inbox" | "month" | "settings";
+export type AdminView = "overview" | "inbox" | "month" | "employees" | "settings";
 
 export type AdminCtx = {
   data: WorkspaceData;
   corrections: CorrectionRow[];
+  leaves: LeaveRow[];
   reload: () => Promise<void>;
   go: (view: AdminView) => void;
 };
@@ -25,16 +27,19 @@ type AppUser = { displayName?: string | null; primaryEmail?: string | null };
 export function AdminApp({ user, view, onView }: { user: AppUser; view: AdminView; onView: (v: AdminView) => void }) {
   const [data, setData] = useState<WorkspaceData | null>(null);
   const [corrections, setCorrections] = useState<CorrectionRow[]>([]);
+  const [leaves, setLeaves] = useState<LeaveRow[]>([]);
   const [error, setError] = useState("");
 
   const reload = useCallback(async () => {
     try {
-      const [ws, list] = await Promise.all([
+      const [ws, list, leaveList] = await Promise.all([
         getWorkspace({ data: { displayName: user.displayName ?? "", email: user.primaryEmail ?? "" } }),
         listCorrections(),
+        listLeaves(),
       ]);
       setData(ws);
       setCorrections(list);
+      setLeaves(leaveList);
       setError("");
     } catch (err) {
       setError(errorText(err));
@@ -75,15 +80,18 @@ export function AdminApp({ user, view, onView }: { user: AppUser; view: AdminVie
     );
   }
 
-  const pendingTotal = corrections.filter((c) => c.status === "pending").length + data.overtimePending.length;
+  const pendingTotal = corrections.filter((c) => c.status === "pending").length + leaves.filter((l) => l.status === "pending").length + data.overtimePending.length;
   const items: { id: AdminView; label: string; icon: ComponentType<{ className?: string }>; badge?: number }[] = [
     { id: "overview", label: "Tổng quan", icon: LayoutDashboard },
     { id: "inbox", label: "Cần duyệt", icon: Inbox, badge: pendingTotal },
     { id: "month", label: "Bảng công", icon: CalendarDays },
   ];
-  if (role === "admin") items.push({ id: "settings", label: "Cài đặt", icon: Settings2 });
+  if (role === "admin") {
+    items.push({ id: "employees", label: "Nhân viên", icon: Users });
+    items.push({ id: "settings", label: "Cài đặt", icon: Settings2 });
+  }
   const current = items.some((i) => i.id === view) ? view : "overview";
-  const ctx: AdminCtx = { data, corrections, reload, go: onView };
+  const ctx: AdminCtx = { data, corrections, leaves, reload, go: onView };
 
   return (
     <div className="flex min-h-dvh flex-col bg-paper text-ink lg:flex-row">
@@ -137,6 +145,7 @@ export function AdminApp({ user, view, onView }: { user: AppUser; view: AdminVie
           {current === "overview" ? <OverviewView ctx={ctx} /> : null}
           {current === "inbox" ? <InboxView ctx={ctx} /> : null}
           {current === "month" ? <MonthView ctx={ctx} /> : null}
+          {current === "employees" ? <EmployeesView ctx={ctx} /> : null}
           {current === "settings" ? <SettingsView ctx={ctx} /> : null}
         </main>
       </div>

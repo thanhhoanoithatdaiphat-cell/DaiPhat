@@ -24,7 +24,7 @@ GPS và camera cần HTTPS; localhost vẫn được trình duyệt cho phép.
    - `CRON_SECRET` = chuỗi ngẫu nhiên dài (bắt buộc để tác vụ xóa ảnh cũ chạy, xem bên dưới)
    - `TRUSTED_ORIGINS` (tùy chọn) = các origin khác, cách nhau bằng dấu phẩy
 4. Deploy. Bảng dữ liệu tự tạo trong bước build (`npm run db:migrate`).
-5. **Tài khoản đăng ký đầu tiên tự thành quản trị viên và không cần mã mời.** Hãy tự đăng ký trước khi gửi link cho nhân viên, rồi vào Cài đặt lấy **mã mời công ty** gửi cho nhân viên.
+5. **Tài khoản đăng ký đầu tiên tự thành quản trị viên và không cần mã mời.** Hãy tự đăng ký trước khi gửi link cho nhân viên, rồi vào Nhân viên lấy **mã mời công ty** gửi cho nhân viên.
 
 Production thiếu `DATABASE_URL` hoặc `BETTER_AUTH_SECRET` sẽ báo lỗi rõ ràng thay vì chạy sai.
 
@@ -36,7 +36,7 @@ Production thiếu `DATABASE_URL` hoặc `BETTER_AUTH_SECRET` sẽ báo lỗi r�
 
 ## Mã mời công ty
 - Từ tài khoản thứ hai trở đi, người đăng ký phải nhập mã mời (kiểm tra ở server, không vượt qua được bằng cách bỏ qua giao diện).
-- Quản trị xem và tạo mã mới trong Cài đặt (web `/admin` hoặc tab Quản trị trên điện thoại). Tạo mã mới thì mã cũ hết hiệu lực, tài khoản đã có không bị ảnh hưởng.
+- Quản trị xem và tạo mã mới ở `/admin` → Nhân viên (hoặc tab Quản trị trên điện thoại). Tạo mã mới thì mã cũ hết hiệu lực, tài khoản đã có không bị ảnh hưởng.
 - Nếu công ty chưa có mã (quản trị chưa mở Cài đặt lần nào), đăng ký bị đóng cho tới khi quản trị lấy mã.
 
 ## Tự xóa ảnh chấm công cũ
@@ -48,10 +48,15 @@ Production thiếu `DATABASE_URL` hoặc `BETTER_AUTH_SECRET` sẽ báo lỗi r�
 ## Bản web quản trị (`/admin`)
 Dành cho tài khoản **Quản trị** và **Người duyệt** (vai trò đặt trong Cài đặt → Nhân viên). Nhân viên thường vào sẽ thấy thông báo không đủ quyền.
 - **Tổng quan**: số người đang làm / đã ra / chưa vào / đi muộn, lọc theo từng nhóm, tự làm mới mỗi 30 giây.
-- **Cần duyệt**: gom đơn sửa công và tăng ca. Chọn nhiều mục để duyệt cùng lúc. Phím tắt J/K chọn dòng, X đánh dấu, A duyệt, R từ chối. Tab "Đã xử lý" cho biết ai duyệt, khi nào.
-- **Bảng công**: lưới nhân viên × ngày theo tháng, bấm một ô để xem từng lần chấm, địa điểm, ảnh. Xuất CSV. Quản trị có thể **chốt công** tháng đã kết thúc (khóa việc duyệt thêm đơn/tăng ca của tháng đó) và mở khóa khi cần.
-- **Cài đặt** (chỉ quản trị): ca làm, địa điểm, phân quyền nhân viên.
-- Quy ước ô công: Chủ nhật là ngày nghỉ; ngày quá khứ không chấm là "Vắng"; ngày trước `started_on` của nhân viên không tính vắng.
+- **Cần duyệt**: bảng gom đơn sửa công, nghỉ phép và tăng ca (loại đơn, nhân viên kèm mã/phòng ban, nội dung, thời gian); có ô tìm theo tên. Chọn nhiều mục để duyệt cùng lúc. Phím tắt J/K chọn dòng, X đánh dấu, A duyệt, R từ chối. Tab "Đã xử lý" (gồm cả đơn nghỉ) cho biết ai duyệt, khi nào. Duyệt đơn nghỉ xong, ngày đó hiện chữ P/Ố/T trong bảng công và không tính vắng.
+- **Bảng công**: lưới nhân viên × ngày theo tháng, bấm một ô để xem từng lần chấm, địa điểm, ảnh. Lọc theo phòng ban, tìm theo tên hoặc mã nhân viên. Xuất CSV. Quản trị có thể **chốt công** tháng đã kết thúc (khóa việc duyệt thêm đơn/tăng ca của tháng đó) và mở khóa khi cần.
+- **Nhân viên** (chỉ quản trị): bảng nhân viên có tìm kiếm, lọc phòng ban / đang làm / đã nghỉ, cảnh báo người thiếu mã NV hoặc phòng ban; bấm một dòng để sửa hồ sơ, đổi vai trò, cho nghỉ việc; chứa mã mời công ty.
+- **Cài đặt** (chỉ quản trị): ca làm, ngưỡng tính công, địa điểm, **ngày lễ** (hiện chữ L trong bảng công, không tính vắng).
+- Công mỗi ngày tự tính theo tổng giờ làm (cộng từng đoạn vào–ra): từ ngưỡng "đủ công" (mặc định 7 giờ) là 1, từ ngưỡng "nửa công" (mặc định 4 giờ) là 0.5, thấp hơn là 0; thiếu giờ ra ở ngày đã qua là 0 cho tới khi có đơn sửa công. Ngưỡng chỉnh trong Cài đặt. Bảng công có nút đổi giữa xem "Công" và "Giờ vào", và hiện cảnh báo số ngày thiếu giờ / đơn chưa duyệt trước khi chốt công. File CSV có thêm cột Công.
+Quy ước ô công: Chủ nhật là ngày nghỉ; ngày quá khứ không chấm là "Vắng"; ngày trước `started_on` của nhân viên không tính vắng.
+
+## Đơn nghỉ phép
+Nhân viên gửi đơn trong tab Đơn (mỗi đơn một ngày: phép, ốm, thai sản, khác; không gửi trùng ngày). Quản trị và người duyệt xử lý ở `/admin` → Cần duyệt, hoặc ngay trên điện thoại. Không tự duyệt đơn của mình (trừ khi công ty chỉ có một người duyệt). Tháng đã chốt công thì không gửi/duyệt thêm.
 
 ## Làm APK
 `public/.well-known/assetlinks.json` đã khai báo gói `vn.daiphat.vaoca`. Dùng PWABuilder hoặc Bubblewrap (Trusted Web Activity)

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildCell, monthDayKeys, summarize, weekdayOf } from "../src/lib/month-grid.ts";
+import { buildCell, monthDayKeys, summarize, weekdayOf, workedMinutes } from "../src/lib/month-grid.ts";
 
 const hm = (iso) => iso.slice(11, 16);
 const p = (type, at, extra = {}) => ({
@@ -44,5 +44,46 @@ test("summarize chỉ tính tăng ca đã duyệt", () => {
   const a = cell("2026-10-12", [p("in", "2026-10-12T01:00:00Z"), p("out", "2026-10-12T12:00:00Z", { overtimeMinutes: 90, overtimeStatus: "approved" })]);
   const b = cell("2026-10-13", [p("in", "2026-10-13T01:00:00Z"), p("out", "2026-10-13T12:00:00Z", { overtimeMinutes: 60, overtimeStatus: "pending" })]);
   const s = summarize([a, b, cell("2026-10-09", [])]);
-  assert.deepEqual(s, { days: 2, late: 0, absent: 1, partial: 0, overtimeMinutes: 90 });
+  assert.deepEqual(s, { days: 2, cong: 2, leave: 0, holiday: 0, late: 0, absent: 1, partial: 0, overtimeMinutes: 90 });
+});
+
+test("công: đủ giờ = 1, nửa ngày = 0.5, quá ít = 0, đang làm hôm nay chưa tính", () => {
+  const day = "2026-10-12";
+  const mk = (inH, outH) => cell(day, [p("in", `${day}T0${inH}:00:00Z`), p("out", `${day}T${String(outH).padStart(2, "0")}:00:00Z`)]);
+  assert.equal(mk(1, 9).cong, 1); // 8 giờ
+  assert.equal(mk(1, 6).cong, 0.5); // 5 giờ
+  assert.equal(mk(1, 3).cong, 0); // 2 giờ
+  assert.equal(mk(1, 9).workedMinutes, 480);
+  const live = cell("2026-10-14", [p("in", "2026-10-14T01:00:00Z")]);
+  assert.equal(live.kind, "ok");
+  assert.equal(live.cong, null);
+});
+
+test("công: thiếu giờ ra ở quá khứ là 0; vắng là 0; nghỉ/lễ không có công", () => {
+  assert.equal(cell("2026-10-12", [p("in", "2026-10-12T01:00:00Z")]).cong, 0);
+  assert.equal(cell("2026-10-12", []).cong, 0);
+  assert.equal(cell("2026-10-12", [], { isHoliday: true }).cong, null);
+  assert.equal(cell("2026-10-12", [], { hasApprovedLeave: true, leaveKind: "om" }).label, "Ố");
+});
+
+test("công: ngưỡng tùy chỉnh và tổng hợp theo tháng", () => {
+  const day = "2026-10-12";
+  const c = cell(day, [p("in", `${day}T01:00:00Z`), p("out", `${day}T05:00:00Z`)], { fullDayMinutes: 360, halfDayMinutes: 180 });
+  assert.equal(c.cong, 0.5); // 4 giờ < 6 giờ
+  const full = cell("2026-10-13", [p("in", "2026-10-13T01:00:00Z"), p("out", "2026-10-13T09:00:00Z")]);
+  const holiday = cell("2026-10-14", [], { isHoliday: true, todayKey: "2026-10-30" });
+  const leave = cell("2026-10-15", [], { hasApprovedLeave: true, todayKey: "2026-10-30" });
+  const s = summarize([c, full, holiday, leave]);
+  assert.equal(s.cong, 1.5);
+  assert.equal(s.holiday, 1);
+  assert.equal(s.leave, 1);
+});
+
+test("workedMinutes cộng từng đoạn vào–ra, bỏ nghỉ trưa", () => {
+  const d = "2026-10-12";
+  const mins = workedMinutes([
+    p("in", `${d}T01:00:00Z`), p("out", `${d}T05:00:00Z`),
+    p("in", `${d}T06:00:00Z`), p("out", `${d}T10:00:00Z`),
+  ]);
+  assert.equal(mins, 480);
 });

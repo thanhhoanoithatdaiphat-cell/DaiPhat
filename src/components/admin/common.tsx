@@ -8,6 +8,13 @@ export const KIND_LABEL: Record<string, string> = {
   khac: "Khác",
 };
 
+export const LEAVE_LABEL: Record<string, string> = {
+  phep: "Nghỉ phép",
+  om: "Nghỉ ốm",
+  thaisan: "Thai sản",
+  khac: "Nghỉ khác",
+};
+
 export function ago(iso: string): string {
   const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
   if (mins < 1) return "vừa xong";

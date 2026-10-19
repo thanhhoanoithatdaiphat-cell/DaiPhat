@@ -1,20 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, X } from "lucide-react";
+import { Check, Search, X } from "lucide-react";
 import { errorText } from "@/components/ui";
-import { reviewCorrection, reviewOvertime } from "@/lib/attendance.functions";
-import type { CorrectionRow, PunchRow } from "@/lib/attendance-types";
+import { reviewCorrection, reviewLeave, reviewOvertime } from "@/lib/attendance.functions";
+import type { CorrectionRow, LeaveRow, PunchRow } from "@/lib/attendance-types";
 import { formatMeters, minutesToHm, vnDateKey, vnTime } from "@/lib/vn-time";
 import type { AdminCtx } from "./app";
-import { ago, Card, Chip, KIND_LABEL, PunchPhoto, shortDate } from "./common";
+import { ago, Card, Chip, KIND_LABEL, LEAVE_LABEL, PunchPhoto, shortDate } from "./common";
 
 type Item =
   | { key: string; kind: "correction"; id: number; userId: string; name: string; at: string; row: CorrectionRow }
-  | { key: string; kind: "overtime"; id: number; userId: string; name: string; at: string; row: PunchRow };
+  | { key: string; kind: "overtime"; id: number; userId: string; name: string; at: string; row: PunchRow }
+  | { key: string; kind: "leave"; id: number; userId: string; name: string; at: string; row: LeaveRow };
 
-type Tab = "all" | "correction" | "overtime" | "done";
+type Tab = "all" | "correction" | "leave" | "overtime" | "done";
+
+type Decided = {
+  key: string;
+  name: string;
+  text: string;
+  status: "approved" | "rejected";
+  by: string | null;
+  at: string | null;
+  note: string | null;
+};
 
 export function InboxView({ ctx }: { ctx: AdminCtx }) {
-  const { data, corrections, reload } = ctx;
+  const { data, corrections, leaves, reload } = ctx;
   const selfId = data.profile.userId;
   const [tab, setTab] = useState<Tab>("all");
   const [cursor, setCursor] = useState(0);
@@ -23,6 +34,7 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [query, setQuery] = useState("");
   const noteRef = useRef<HTMLInputElement>(null);
 
   const pending = useMemo<Item[]>(() => {
@@ -38,11 +50,42 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
       at: r.punchedAt,
       row: r,
     }));
-    return [...a, ...b].sort((x, y) => y.at.localeCompare(x.at));
-  }, [corrections, data.overtimePending]);
+    const c: Item[] = leaves
+      .filter((l) => l.status === "pending")
+      .map((l) => ({ key: `l${l.id}`, kind: "leave", id: l.id, userId: l.userId, name: l.fullName, at: l.createdAt, row: l }));
+    return [...a, ...b, ...c].sort((x, y) => y.at.localeCompare(x.at));
+  }, [corrections, leaves, data.overtimePending]);
 
-  const decided = useMemo(() => corrections.filter((c) => c.status !== "pending"), [corrections]);
-  const list = pending.filter((i) => tab === "all" || i.kind === tab);
+  const info = useMemo(() => new Map(data.teamToday.map((p) => [p.userId, p])), [data.teamToday]);
+  const needle = query.trim().toLowerCase();
+  const decided = useMemo<Decided[]>(() => {
+    const a: Decided[] = corrections
+      .filter((c) => c.status !== "pending")
+      .map((c) => ({
+        key: `c${c.id}`,
+        name: c.fullName,
+        text: `${KIND_LABEL[c.kind] ?? c.kind} · ${shortDate(c.attendanceDate)} · ${c.punchType === "in" ? "vào" : "ra"} ${c.requestedTime}`,
+        status: c.status as "approved" | "rejected",
+        by: c.reviewedByName,
+        at: c.reviewedAt,
+        note: c.reviewNote,
+      }));
+    const b: Decided[] = leaves
+      .filter((l) => l.status !== "pending")
+      .map((l) => ({
+        key: `l${l.id}`,
+        name: l.fullName,
+        text: `${LEAVE_LABEL[l.kind] ?? l.kind} · ${shortDate(l.leaveDate)}`,
+        status: l.status as "approved" | "rejected",
+        by: l.reviewedByName,
+        at: l.reviewedAt,
+        note: l.reviewNote,
+      }));
+    return [...a, ...b]
+      .filter((d) => !needle || d.name.toLowerCase().includes(needle))
+      .sort((x, y) => (y.at ?? "").localeCompare(x.at ?? ""));
+  }, [corrections, leaves, needle]);
+  const list = pending.filter((i) => (tab === "all" || i.kind === tab) && (!needle || i.name.toLowerCase().includes(needle)));
   const safeCursor = Math.min(cursor, Math.max(0, list.length - 1));
   const current = tab === "done" ? undefined : list[safeCursor];
 
@@ -63,7 +106,9 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
       usable.map((i) =>
         i.kind === "correction"
           ? reviewCorrection({ data: { id: i.id, decision, reviewNote: reason } })
-          : reviewOvertime({ data: { id: i.id, decision } }),
+          : i.kind === "leave"
+            ? reviewLeave({ data: { id: i.id, decision, reviewNote: reason } })
+            : reviewOvertime({ data: { id: i.id, decision } }),
       ),
     );
     const failed = results.flatMap((r, idx) => (r.status === "rejected" ? [`${usable[idx].name}: ${errorText(r.reason)}`] : []));
@@ -115,6 +160,7 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: "all", label: "Tất cả", count: pending.length },
     { id: "correction", label: "Sửa công", count: pending.filter((i) => i.kind === "correction").length },
+    { id: "leave", label: "Nghỉ phép", count: pending.filter((i) => i.kind === "leave").length },
     { id: "overtime", label: "Tăng ca", count: pending.filter((i) => i.kind === "overtime").length },
     { id: "done", label: "Đã xử lý" },
   ];
@@ -127,7 +173,7 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
         <p className="hidden text-xs text-muted lg:block">Phím tắt: J/K chọn dòng · X đánh dấu · A duyệt · R từ chối</p>
       </div>
 
-      <div className="flex flex-wrap gap-2" role="tablist">
+      <div className="flex flex-wrap items-center gap-2" role="tablist">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -146,6 +192,19 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
             {t.count ? <span className={`ml-2 ${tab === t.id ? "text-ice" : "text-clay"}`}>{t.count}</span> : null}
           </button>
         ))}
+        <label className="relative ml-auto">
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
+          <input
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setCursor(0);
+            }}
+            placeholder="Tìm tên nhân viên"
+            aria-label="Tìm tên nhân viên"
+            className="h-10 w-48 rounded-md border-[1.5px] border-ink bg-card pr-3 pl-9 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ice"
+          />
+        </label>
       </div>
 
       {message ? <p className="rounded-md bg-sand px-4 py-2 text-sm">{message}</p> : null}
@@ -157,19 +216,17 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
           ) : (
             <ul>
               {decided.map((c) => (
-                <li key={c.id} className="flex flex-wrap items-center gap-3 border-t border-line px-5 py-3 first:border-t-0">
-                  <span className="min-w-36 font-medium">{c.fullName}</span>
-                  <span className="text-sm text-muted">
-                    {KIND_LABEL[c.kind] ?? c.kind} · {shortDate(c.attendanceDate)} · {c.punchType === "in" ? "vào" : "ra"} {c.requestedTime}
-                  </span>
+                <li key={c.key} className="flex flex-wrap items-center gap-3 border-t border-line px-5 py-3 first:border-t-0">
+                  <span className="min-w-36 font-medium">{c.name}</span>
+                  <span className="text-sm text-muted">{c.text}</span>
                   <span className="ml-auto flex items-center gap-2">
                     <Chip tone={c.status === "approved" ? "ok" : "clay"}>{c.status === "approved" ? "Đã duyệt" : "Từ chối"}</Chip>
                     <span className="text-xs text-muted">
-                      {c.reviewedByName ?? "—"}
-                      {c.reviewedAt ? ` · ${ago(c.reviewedAt)}` : ""}
+                      {c.by ?? "—"}
+                      {c.at ? ` · ${ago(c.at)}` : ""}
                     </span>
                   </span>
-                  {c.reviewNote ? <p className="w-full text-sm text-muted">Ghi chú: {c.reviewNote}</p> : null}
+                  {c.note ? <p className="w-full text-sm text-muted">Ghi chú: {c.note}</p> : null}
                 </li>
               ))}
             </ul>
@@ -180,7 +237,7 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
           <p className="px-5 py-14 text-center font-display text-3xl font-semibold">Đã xử lý hết</p>
         </Card>
       ) : (
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,26rem)_1fr]">
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
           <Card>
             <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2 text-sm">
               <label className="flex items-center gap-2">
@@ -194,41 +251,61 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
               </label>
               <span className="text-muted">{picked.length ? `${picked.length} đã chọn` : `${list.length} mục`}</span>
             </div>
-            <ul>
-              {list.map((i, idx) => (
-                <li
-                  key={i.key}
-                  className={`flex cursor-pointer items-start gap-3 border-t border-line px-4 py-3 first:border-t-0 ${
-                    idx === safeCursor ? "border-l-4 border-l-ink bg-ice/25" : "border-l-4 border-l-transparent"
-                  }`}
-                  onClick={() => {
-                    setCursor(idx);
-                    setRejecting(false);
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    className="mt-1 size-4 accent-ink"
-                    checked={checked.has(i.key)}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={() =>
-                      setChecked((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(i.key)) next.delete(i.key);
-                        else next.add(i.key);
-                        return next;
-                      })
-                    }
-                    aria-label={`Chọn ${i.name}`}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{i.name}</p>
-                    <p className="text-sm text-muted">{summary(i)}</p>
-                  </div>
-                  <span className="shrink-0 text-xs text-muted">{ago(i.at)}</span>
-                </li>
-              ))}
-            </ul>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[34rem] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-line text-left text-xs font-semibold text-muted uppercase">
+                    <th className="w-10 px-4 py-2" />
+                    <th className="px-2 py-2">Loại đơn</th>
+                    <th className="px-2 py-2">Nhân viên</th>
+                    <th className="px-2 py-2">Nội dung</th>
+                    <th className="px-4 py-2 text-right">Gửi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {list.map((i, idx) => {
+                    const who = info.get(i.userId);
+                    return (
+                      <tr
+                        key={i.key}
+                        className={`cursor-pointer border-t border-line ${idx === safeCursor ? "bg-ice/25 shadow-[inset_4px_0_0_var(--color-ink)]" : "hover:bg-paper"}`}
+                        onClick={() => {
+                          setCursor(idx);
+                          setRejecting(false);
+                        }}
+                      >
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            className="size-4 accent-ink"
+                            checked={checked.has(i.key)}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={() =>
+                              setChecked((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(i.key)) next.delete(i.key);
+                                else next.add(i.key);
+                                return next;
+                              })
+                            }
+                            aria-label={`Chọn ${i.name}`}
+                          />
+                        </td>
+                        <td className="px-2 py-3 whitespace-nowrap">
+                          <Chip tone="ink">{i.kind === "correction" ? "Sửa công" : i.kind === "leave" ? "Nghỉ phép" : "Tăng ca"}</Chip>
+                        </td>
+                        <td className="px-2 py-3">
+                          <p className="font-medium">{i.name}</p>
+                          <p className="text-xs text-muted">{[who?.employeeCode, who?.department].filter(Boolean).join(" · ") || "—"}</p>
+                        </td>
+                        <td className="px-2 py-3 text-muted">{summary(i)}</td>
+                        <td className="px-4 py-3 text-right text-xs whitespace-nowrap text-muted">{ago(i.at)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </Card>
 
           <div className="space-y-3 lg:sticky lg:top-4">
@@ -296,6 +373,7 @@ function summary(i: Item): string {
     const c = i.row;
     return `${KIND_LABEL[c.kind] ?? c.kind} · ${shortDate(c.attendanceDate)} · xin ${c.punchType === "in" ? "vào" : "ra"} ${c.requestedTime}`;
   }
+  if (i.kind === "leave") return `${LEAVE_LABEL[i.row.kind] ?? i.row.kind} · ngày ${shortDate(i.row.leaveDate)}`;
   return `Tăng ca ${minutesToHm(i.row.overtimeMinutes)} · ${shortDate(vnDateKey(i.row.punchedAt))}`;
 }
 
@@ -313,6 +391,20 @@ function Detail({ item }: { item: Item }) {
         </p>
         <p className="text-sm text-muted">Ngày {shortDate(c.attendanceDate)} · gửi {ago(c.createdAt)}</p>
         <blockquote className="border-l-4 border-ice bg-paper px-4 py-3 text-sm">{c.note}</blockquote>
+      </div>
+    );
+  }
+  if (item.kind === "leave") {
+    const l = item.row;
+    return (
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Chip tone="ink">Nghỉ phép</Chip>
+          <Chip tone="muted">{LEAVE_LABEL[l.kind] ?? l.kind}</Chip>
+        </div>
+        <p className="font-display text-4xl leading-tight font-semibold">Xin nghỉ ngày {shortDate(l.leaveDate)}</p>
+        <p className="text-sm text-muted">Gửi {ago(l.createdAt)}. Duyệt xong, ngày này hiện trong bảng công là nghỉ có phép và không tính vắng.</p>
+        <blockquote className="border-l-4 border-ice bg-paper px-4 py-3 text-sm">{l.note}</blockquote>
       </div>
     );
   }

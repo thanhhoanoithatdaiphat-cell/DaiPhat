@@ -3,6 +3,9 @@ import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql } from "@/lib/db";
 import type {
   CorrectionRow,
+  HolidayRow,
+  LeaveKind,
+  LeaveRow,
   LocationRow,
   MonthGrid,
   OvertimeStatus,
@@ -17,7 +20,7 @@ import type {
 } from "@/lib/attendance-types";
 import { dayRange, hmToMinutes, isEarlyOut, minutesToHm, monthRange, vnDateKey, vnMinutes, vnWeekday } from "@/lib/vn-time";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
-import type { MonthPunch } from "@/lib/month-grid";
+import { congOf, workedMinutes as sumWorked, type MonthPunch } from "@/lib/month-grid";
 
 const COMPANY_ID = "co-default";
 const PHOTO_MAX = 180_000;
@@ -27,6 +30,8 @@ const DEFAULT_SETTINGS: Settings = {
   workStart: "08:00",
   workEnd: "17:30",
   lateMinutes: 5,
+  fullDayMinutes: 420,
+  halfDayMinutes: 240,
   maxCorrections: 4,
   rankingsEnabled: false,
   requirePhoto: true,
@@ -72,11 +77,18 @@ function readSettings(raw: unknown): Settings {
     workStart: isHm(obj.workStart) ? obj.workStart : DEFAULT_SETTINGS.workStart,
     workEnd: isHm(obj.workEnd) ? obj.workEnd : DEFAULT_SETTINGS.workEnd,
     lateMinutes: clampNum(obj.lateMinutes, 0, 180, DEFAULT_SETTINGS.lateMinutes),
+    ...readDayThresholds(obj),
     maxCorrections: clampNum(obj.maxCorrections, 0, 20, DEFAULT_SETTINGS.maxCorrections),
     rankingsEnabled: obj.rankingsEnabled === true,
     requirePhoto: obj.requirePhoto !== false,
     allowOffsite: obj.allowOffsite === true,
   };
+}
+
+function readDayThresholds(obj: Record<string, unknown>): { fullDayMinutes: number; halfDayMinutes: number } {
+  const full = clampNum(obj.fullDayMinutes, 60, 960, DEFAULT_SETTINGS.fullDayMinutes);
+  const half = clampNum(obj.halfDayMinutes, 30, 960, DEFAULT_SETTINGS.halfDayMinutes);
+  return half < full ? { fullDayMinutes: full, halfDayMinutes: half } : { fullDayMinutes: DEFAULT_SETTINGS.fullDayMinutes, halfDayMinutes: DEFAULT_SETTINGS.halfDayMinutes };
 }
 
 function stamp(value: unknown): string {
@@ -320,8 +332,15 @@ export const getWorkspace = createServerFn({ method: "POST" })
         role: Role;
         type: "in" | "out" | null;
         punched_at: unknown;
+        employee_code: string | null;
+        department: string | null;
+        job_title: string | null;
+        started_on: unknown;
+        ended_on: unknown;
+        is_active: boolean;
       }>`
-        select p.user_id, p.full_name, p.email, p.phone, p.role, a.type, a.punched_at
+        select p.user_id, p.full_name, p.email, p.phone, p.role, a.type, a.punched_at,
+               p.employee_code, p.department, p.job_title, p.started_on, p.ended_on, p.is_active
         from profiles p
         left join lateral (
           select type, punched_at from attendances
@@ -342,6 +361,12 @@ export const getWorkspace = createServerFn({ method: "POST" })
         role: p.role,
         lastType: p.type,
         lastAt: p.punched_at ? stamp(p.punched_at) : null,
+        employeeCode: p.employee_code,
+        department: p.department,
+        jobTitle: p.job_title,
+        startedOn: p.started_on ? dateOnly(p.started_on) : null,
+        endedOn: p.ended_on ? dateOnly(p.ended_on) : null,
+        isActive: Boolean(p.is_active),
       }));
     }
     let offsiteToday: PunchRow[] = [];
@@ -1043,6 +1068,7 @@ export const exportTimesheet = createServerFn({ method: "POST" })
       "Giờ vào",
       "Giờ ra",
       "Số giờ",
+      "Công",
       "Đi muộn (phút)",
       "Tăng ca",
       "Tăng ca được tính",
@@ -1089,6 +1115,7 @@ export const exportTimesheet = createServerFn({ method: "POST" })
           firstIn ? vnTimeExport(firstIn.at) : "",
           lastOut ? vnTimeExport(lastOut.at) : "",
           hours,
+          bucket.day === vnDateKey() && firstIn && !lastOut ? "" : String(congOf(sumWorked(bucket.punches), settings.fullDayMinutes, settings.halfDayMinutes)),
           firstIn && lateMinutes >= settings.lateMinutes ? String(lateMinutes) : "",
           lastOut && overtimeMinutes > 0 ? minutesToHm(overtimeMinutes) : "",
           counted,
@@ -1158,6 +1185,7 @@ export const updateProfile = createServerFn({ method: "POST" })
       employeeCode: string;
       department: string;
       jobTitle: string;
+      startedOn?: string;
       avatar: string;
     }) => {
       const fullName = input.fullName.trim().slice(0, 80);
@@ -1165,11 +1193,13 @@ export const updateProfile = createServerFn({ method: "POST" })
       const employeeCode = input.employeeCode.trim().slice(0, 20);
       const department = input.department.trim().slice(0, 60);
       const jobTitle = input.jobTitle.trim().slice(0, 60);
+      const startedOn = (input.startedOn ?? "").trim();
+      if (startedOn && !/^\d{4}-\d{2}-\d{2}$/.test(startedOn)) throw new Error("Ngày vào làm chưa đúng");
       const avatar = input.avatar.trim();
       if (avatar && (!avatar.startsWith("data:image/jpeg;base64,") || avatar.length > 180_000)) {
         throw new Error("Ảnh đại diện quá nặng hoặc không đúng định dạng.");
       }
-      return { fullName, employeeCode, department, jobTitle, avatar };
+      return { fullName, employeeCode, department, jobTitle, startedOn, avatar };
     },
   )
   .middleware([authMiddleware])
@@ -1182,6 +1212,7 @@ export const updateProfile = createServerFn({ method: "POST" })
           employee_code = ${data.employeeCode || null},
           department = ${data.department || null},
           job_title = ${data.jobTitle || null},
+          started_on = ${data.startedOn || null}::date,
           avatar_data = coalesce(${data.avatar || null}, avatar_data)
       where user_id = ${profile.userId}
     `;
@@ -1237,6 +1268,8 @@ export const saveCompany = createServerFn({ method: "POST" })
   .validator((input: { name: string; settings: Settings }) => {
     const name = input.name.trim().slice(0, 80);
     if (name.length < 2) throw new Error("Tên công ty quá ngắn");
+    const raw = input.settings as unknown as Record<string, unknown>;
+    if (Number(raw.halfDayMinutes) >= Number(raw.fullDayMinutes)) throw new Error("Số giờ tính nửa công phải nhỏ hơn số giờ tính đủ công");
     const settings = readSettings(input.settings);
     return { name, settings };
   })
@@ -1499,11 +1532,71 @@ export const createLeaveRequest = createServerFn({ method: "POST" })
     const profile = await requireProfile(context.userId);
     await assertMonthOpen(profile.companyId, data.leaveDate);
     const sql = await getSql();
+    const dup = await sql<{ id: number }>`
+      select id from leave_requests
+      where user_id = ${profile.userId} and leave_date = ${data.leaveDate}::date and status in ('pending', 'approved')
+      limit 1
+    `;
+    if (dup.length) throw new Error("Bạn đã có đơn nghỉ cho ngày này");
     await sql`
       insert into leave_requests (user_id, company_id, leave_date, kind, note)
       values (${profile.userId}, ${profile.companyId}, ${data.leaveDate}::date, ${data.kind}, ${data.note})
     `;
     return { ok: true };
+  });
+
+export const listLeaves = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<LeaveRow[]> => {
+    const profile = await requireProfile(context.userId);
+    const sql = await getSql();
+    const rows = await sql<{
+      id: number;
+      user_id: string;
+      full_name: string;
+      leave_date: unknown;
+      kind: LeaveKind;
+      note: string;
+      status: "pending" | "approved" | "rejected";
+      review_note: string | null;
+      created_at: unknown;
+      reviewed_at: unknown;
+      reviewer_name: string | null;
+    }>`
+      select l.id, l.user_id, p.full_name, l.leave_date, l.kind, l.note, l.status, l.review_note,
+             l.created_at, l.reviewed_at, r.full_name as reviewer_name
+      from leave_requests l
+      join profiles p on p.user_id = l.user_id
+      left join profiles r on r.user_id = l.reviewed_by
+      where l.company_id = ${profile.companyId}
+        and (${canReview(profile.role)} or l.user_id = ${profile.userId})
+      order by case when l.status = 'pending' then 0 else 1 end, l.created_at desc
+      limit 80
+    `;
+    return rows.map((row) => ({
+      id: Number(row.id),
+      userId: row.user_id,
+      fullName: row.full_name,
+      leaveDate: dateOnly(row.leave_date),
+      kind: row.kind,
+      note: row.note,
+      status: row.status,
+      reviewNote: row.review_note,
+      createdAt: stamp(row.created_at),
+      reviewedByName: row.reviewer_name,
+      reviewedAt: row.reviewed_at ? stamp(row.reviewed_at) : null,
+    }));
+  });
+
+export const listHolidays = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<HolidayRow[]> => {
+    const profile = await requireProfile(context.userId);
+    const sql = await getSql();
+    const rows = await sql<{ date: unknown; name: string }>`
+      select date, name from holidays where company_id = ${profile.companyId} order by date desc limit 120
+    `;
+    return rows.map((r) => ({ date: dateOnly(r.date), name: r.name }));
   });
 
 export const reviewLeave = createServerFn({ method: "POST" })

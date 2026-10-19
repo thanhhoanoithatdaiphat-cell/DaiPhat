@@ -8,6 +8,10 @@ export type Settings = {
   workStart: string;
   workEnd: string;
   lateMinutes: number;
+  /** Làm từ số phút này thì tính 1 công. */
+  fullDayMinutes: number;
+  /** Làm từ số phút này thì tính 0.5 công. */
+  halfDayMinutes: number;
   maxCorrections: number;
   rankingsEnabled: boolean;
   requirePhoto: boolean;
@@ -56,6 +60,24 @@ export type CorrectionRow = {
   reviewedAt: string | null;
 };
 
+export type LeaveKind = "phep" | "om" | "thaisan" | "khac";
+
+export type LeaveRow = {
+  id: number;
+  userId: string;
+  fullName: string;
+  leaveDate: string;
+  kind: LeaveKind;
+  note: string;
+  status: "pending" | "approved" | "rejected";
+  reviewNote: string | null;
+  createdAt: string;
+  reviewedByName: string | null;
+  reviewedAt: string | null;
+};
+
+export type HolidayRow = { date: string; name: string };
+
 export type PersonRow = {
   userId: string;
   fullName: string;
@@ -64,6 +86,12 @@ export type PersonRow = {
   role: Role;
   lastType: "in" | "out" | null;
   lastAt: string | null;
+  employeeCode?: string | null;
+  department?: string | null;
+  jobTitle?: string | null;
+  startedOn?: string | null;
+  endedOn?: string | null;
+  isActive?: boolean;
 };
 
 export type ProfileRow = {

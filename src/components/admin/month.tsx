@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, Download, Lock, LockOpen, Search, X } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, Download, Lock, LockOpen, Search, X } from "lucide-react";
 import { errorText } from "@/components/ui";
 import { exportTimesheet, getMonthGrid, lockMonth } from "@/lib/attendance.functions";
 import type { MonthGrid } from "@/lib/attendance-types";
 import { buildCell, monthDayKeys, summarize, weekdayOf, type CellKind, type DayCell } from "@/lib/month-grid";
-import { formatMeters, formatMonthLabel, formatVnDay, minutesToHm, shiftMonth, vnMonthKey, vnTime } from "@/lib/vn-time";
+import { formatMeters, formatMonthLabel, formatVnDay, minutesToHm, shiftMonth, vnDateKey, vnMonthKey, vnTime } from "@/lib/vn-time";
 import type { AdminCtx } from "./app";
 import { Chip, PunchPhoto } from "./common";
 
@@ -29,16 +29,18 @@ const KIND_TEXT: Record<CellKind, string> = {
 };
 
 export function MonthView({ ctx }: { ctx: AdminCtx }) {
-  const { data, corrections } = ctx;
+  const { data, corrections, leaves } = ctx;
   const isAdmin = data.profile.role === "admin";
   const [month, setMonth] = useState(vnMonthKey());
   const [grid, setGrid] = useState<MonthGrid | null>(null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [dept, setDept] = useState("");
+  const [show, setShow] = useState<"cong" | "gio">("cong");
   const [sel, setSel] = useState<{ userId: string; dateKey: string } | null>(null);
   const [personId, setPersonId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const approvedCount = corrections.filter((c) => c.status === "approved").length;
+  const approvedCount = corrections.filter((c) => c.status === "approved").length + leaves.filter((l) => l.status === "approved").length;
 
   const load = useCallback(async () => {
     try {
@@ -62,28 +64,46 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
   }, []);
 
   const days = useMemo(() => monthDayKeys(month), [month]);
-  const rows = useMemo(() => {
+  const all = useMemo(() => {
     if (!grid) return [];
-    return grid.people
-      .filter((p) => !query || p.fullName.toLowerCase().includes(query.toLowerCase()))
-      .map((p) => {
-        const cells = days.map((d) =>
-          buildCell({
-            dateKey: d,
-            punches: grid.punches[p.userId]?.[d] ?? [],
-            todayKey: grid.todayKey,
-            startedOn: p.startedOn,
-            endedOn: p.endedOn,
-            isHoliday: grid.holidays?.includes(d) ?? false,
-            hasApprovedLeave: !!grid.leaves?.[p.userId]?.[d],
-            leaveKind: grid.leaves?.[p.userId]?.[d] ?? null,
-            lateThreshold: data.settings.lateMinutes,
-            hm: vnTime,
-          }),
-        );
-        return { person: p, cells, sum: summarize(cells) };
-      });
-  }, [grid, days, query, data.settings.lateMinutes]);
+    return grid.people.map((p) => {
+      const cells = days.map((d) =>
+        buildCell({
+          dateKey: d,
+          punches: grid.punches[p.userId]?.[d] ?? [],
+          todayKey: grid.todayKey,
+          startedOn: p.startedOn,
+          endedOn: p.endedOn,
+          isHoliday: grid.holidays?.includes(d) ?? false,
+          hasApprovedLeave: !!grid.leaves?.[p.userId]?.[d],
+          leaveKind: grid.leaves?.[p.userId]?.[d] ?? null,
+          lateThreshold: data.settings.lateMinutes,
+          fullDayMinutes: data.settings.fullDayMinutes,
+          halfDayMinutes: data.settings.halfDayMinutes,
+          hm: vnTime,
+        }),
+      );
+      return { person: p, cells, sum: summarize(cells) };
+    });
+  }, [grid, days, data.settings.lateMinutes, data.settings.fullDayMinutes, data.settings.halfDayMinutes]);
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return all
+      .filter(({ person: p, sum }) => p.isActive !== false || sum.cong > 0)
+      .filter(({ person: p }) => !q || p.fullName.toLowerCase().includes(q) || (p.employeeCode ?? "").toLowerCase().includes(q))
+      .filter(({ person: p }) => !dept || (p.department ?? "") === dept);
+  }, [all, query, dept]);
+  const depts = useMemo(() => [...new Set((grid?.people ?? []).map((p) => p.department ?? "").filter(Boolean))].sort((a, b) => a.localeCompare(b, "vi")), [grid]);
+
+  const issues = useMemo(() => {
+    const partial = all.reduce((n, r) => n + r.sum.partial, 0);
+    const pendingReq =
+      corrections.filter((c) => c.status === "pending" && c.attendanceDate.startsWith(month)).length +
+      leaves.filter((l) => l.status === "pending" && l.leaveDate.startsWith(month)).length +
+      data.overtimePending.filter((o) => vnDateKey(o.punchedAt).startsWith(month)).length;
+    return { partial, pendingReq };
+  }, [all, corrections, leaves, data.overtimePending, month]);
+  const totalCong = rows.reduce((n, r) => n + r.sum.cong, 0);
 
   async function download() {
     setBusy(true);
@@ -139,8 +159,23 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
       <div className="flex flex-wrap items-center gap-3">
         <label className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm tên" className="h-10 w-44 rounded-md border-[1.5px] border-ink bg-card pr-3 pl-9 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ice" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm tên hoặc mã NV" className="h-10 w-44 rounded-md border-[1.5px] border-ink bg-card pr-3 pl-9 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ice" />
         </label>
+        {depts.length ? (
+          <select value={dept} onChange={(e) => setDept(e.target.value)} aria-label="Lọc theo phòng ban" className="h-10 rounded-md border-[1.5px] border-ink bg-card px-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ice">
+            <option value="">Tất cả phòng ban</option>
+            {depts.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        ) : null}
+        <div className="flex overflow-hidden rounded-md border-[1.5px] border-ink text-sm font-semibold" role="group" aria-label="Kiểu hiển thị ô">
+          {(["cong", "gio"] as const).map((k) => (
+            <button key={k} type="button" aria-pressed={show === k} onClick={() => setShow(k)} className={`h-9 px-3 ${show === k ? "bg-ink text-card" : "bg-card"}`}>
+              {k === "cong" ? "Công" : "Giờ vào"}
+            </button>
+          ))}
+        </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {grid?.lock ? (
             <>
@@ -174,7 +209,26 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
       </div>
 
       {error ? <p className="text-sm text-clay">{error}</p> : null}
-      <Legend />
+      {grid && !grid.lock && (issues.partial > 0 || issues.pendingReq > 0) ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border-[1.5px] border-clay bg-clay/10 px-4 py-3 text-sm">
+          <AlertTriangle className="size-5 shrink-0 text-clay" />
+          <p className="min-w-0 flex-1">
+            <span className="font-semibold">Còn việc cần xử lý trước khi chốt công {formatMonthLabel(month)}:</span>{" "}
+            {[issues.partial ? `${issues.partial} ngày thiếu giờ vào hoặc ra` : "", issues.pendingReq ? `${issues.pendingReq} đơn chưa duyệt` : ""].filter(Boolean).join(", ")}.
+          </p>
+          {issues.pendingReq ? (
+            <button type="button" className="font-semibold underline" onClick={() => ctx.go("inbox")}>
+              Mở Cần duyệt
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {grid ? (
+        <p className="text-sm text-muted">
+          {rows.length} nhân viên · tổng <span className="font-semibold tabular-nums text-ink">{fmtCong(totalCong)}</span> công
+        </p>
+      ) : null}
+      <Legend full={data.settings.fullDayMinutes} half={data.settings.halfDayMinutes} />
 
       {!grid ? (
         <p className="py-10 text-sm text-muted">Đang tải bảng công…</p>
@@ -184,7 +238,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
             <thead>
               <tr>
                 <th className="sticky top-0 left-0 z-20 min-w-44 border-b-2 border-ink bg-card px-3 py-2 text-left font-semibold">Nhân viên</th>
-                {["Công", "Muộn", "Vắng", "Thiếu", "TC"].map((h) => (
+                {["Công", "Muộn", "Vắng", "Thiếu", "Nghỉ", "TC"].map((h) => (
                   <th key={h} className="sticky top-0 z-10 border-b-2 border-ink bg-card px-2 py-2 text-center text-xs font-semibold text-muted">
                     {h}
                   </th>
@@ -201,24 +255,29 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
               {rows.map(({ person, cells, sum }) => (
                 <tr key={person.userId} className="group">
                   <th className="sticky left-0 z-10 max-w-52 truncate border-b border-line bg-card px-3 py-1.5 text-left font-medium group-hover:bg-paper">
-                    <button type="button" className="truncate text-left underline decoration-dotted" onClick={() => setPersonId(person.userId)}>
-                      {person.fullName}
+                    <button type="button" className="flex w-full items-center gap-2 text-left" onClick={() => setPersonId(person.userId)}>
+                      <span className="grid size-8 shrink-0 place-items-center rounded-md bg-sand font-display text-base font-semibold">{person.fullName.charAt(0).toUpperCase()}</span>
+                      <span className="min-w-0">
+                        <span className={`block truncate ${person.isActive === false ? "text-muted line-through" : ""}`}>{person.fullName}</span>
+                        <span className="block truncate text-[11px] font-normal text-muted">{[person.employeeCode, person.department].filter(Boolean).join(" · ") || "—"}</span>
+                      </span>
                     </button>
                   </th>
-                  <Num v={sum.days} />
+                  <Num v={sum.cong} strong />
                   <Num v={sum.late} warn />
                   <Num v={sum.absent} bad />
                   <Num v={sum.partial} bad />
+                  <Num v={sum.leave + sum.holiday} />
                   <td className="border-b border-line px-2 text-center font-display text-base tabular-nums">{sum.overtimeMinutes ? minutesToHm(sum.overtimeMinutes) : "–"}</td>
                   {cells.map((c, i) => (
                     <td key={days[i]} className="border-b border-line p-0.5">
                       <button
                         type="button"
                         onClick={() => setSel({ userId: person.userId, dateKey: days[i] })}
-                        title={`${person.fullName} · ${KIND_TEXT[c.kind]}`}
+                        title={`${person.fullName} · ${KIND_TEXT[c.kind]}${c.cong != null ? ` · ${c.cong} công` : ""}${c.workedMinutes ? ` · làm ${minutesToHm(c.workedMinutes)}` : ""}`}
                         className={`relative h-9 w-11 rounded-sm border font-display text-sm font-semibold tabular-nums ${CELL_CLASS[c.kind]}`}
                       >
-                        {c.label}
+                        {cellText(c, show)}
                         {c.offsite ? <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-clay ring-1 ring-card" /> : null}
                         {c.overtimeStatus === "approved" ? <span className="absolute right-1 bottom-0.5 left-1 h-0.5 bg-ink" /> : null}
                       </button>
@@ -322,10 +381,11 @@ function PersonDetail({
             <X className="size-5" />
           </button>
         </div>
-        <div className="mt-4 grid grid-cols-4 gap-2 text-center">
-          <Stat label="Công" value={String(sum.days)} />
+        <div className="mt-4 grid grid-cols-5 gap-2 text-center">
+          <Stat label="Công" value={fmtCong(sum.cong)} />
           <Stat label="Muộn" value={String(sum.late)} />
           <Stat label="Vắng" value={String(sum.absent)} />
+          <Stat label="Nghỉ" value={String(sum.leave + sum.holiday)} />
           <Stat label="Tăng ca" value={sum.overtimeMinutes ? minutesToHm(sum.overtimeMinutes) : "–"} />
         </div>
         <Section title={`Ngày đi muộn (${lateDays.length})`}>
@@ -379,22 +439,34 @@ function Empty() {
   return <p className="text-sm text-muted">Không có.</p>;
 }
 
+function cellText(c: DayCell, show: "cong" | "gio"): string {
+  if (show === "gio" || c.kind === "off" || c.kind === "future" || c.kind === "absent") return c.label;
+  if (c.kind === "partial") return "!";
+  return c.cong == null ? "…" : fmtCong(c.cong);
+}
+
+function fmtCong(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
 function DayChips({ cell }: { cell: DayCell }) {
   const tone = cell.kind === "ok" ? "ok" : cell.kind === "late" ? "late" : cell.kind === "absent" || cell.kind === "partial" ? "clay" : "muted";
   return (
     <div className="mt-3 flex flex-wrap gap-2">
       <Chip tone={tone}>{KIND_TEXT[cell.kind]}</Chip>
+      {cell.cong != null && cell.kind !== "absent" ? <Chip tone="ink">{fmtCong(cell.cong)} công</Chip> : null}
+      {cell.workedMinutes > 0 ? <Chip tone="muted">Làm {minutesToHm(cell.workedMinutes)}</Chip> : null}
       {cell.lateMinutes > 0 ? <Chip tone="late">Muộn {cell.lateMinutes} phút</Chip> : null}
     </div>
   );
 }
 
-function Num({ v, warn, bad }: { v: number; warn?: boolean; bad?: boolean }) {
+function Num({ v, warn, bad, strong }: { v: number; warn?: boolean; bad?: boolean; strong?: boolean }) {
   const cls = v > 0 && bad ? "text-clay" : v > 0 && warn ? "text-ink" : "text-ink";
-  return <td className={`border-b border-line px-2 text-center font-display text-base tabular-nums ${cls} ${v === 0 ? "opacity-40" : ""}`}>{v}</td>;
+  return <td className={`border-b border-line px-2 text-center font-display text-base tabular-nums ${cls} ${strong ? "font-bold" : ""} ${v === 0 ? "opacity-40" : ""}`}>{fmtCong(v)}</td>;
 }
 
-function Legend() {
+function Legend({ full, half }: { full: number; half: number }) {
   const items: [CellKind, string][] = [
     ["ok", "Đủ công"],
     ["late", "Đi muộn"],
@@ -414,6 +486,10 @@ function Legend() {
       </li>
       <li className="flex items-center gap-1.5">
         <span className="h-0.5 w-4 bg-ink" /> Có tăng ca đã duyệt
+      </li>
+      <li>V vắng · ! thiếu giờ ra · P phép · Ố ốm · T thai sản · L lễ</li>
+      <li>
+        1 công từ {minutesToHm(full)} làm · 0.5 công từ {minutesToHm(half)}
       </li>
     </ul>
   );

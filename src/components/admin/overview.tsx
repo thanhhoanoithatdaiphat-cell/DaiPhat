@@ -3,18 +3,18 @@ import { Search } from "lucide-react";
 import type { PersonRow } from "@/lib/attendance-types";
 import { vnTime } from "@/lib/vn-time";
 import type { AdminCtx } from "./app";
-import { Card, Chip } from "./common";
+import { Card, Chip, LEAVE_LABEL } from "./common";
 
 type Filter = "all" | "working" | "done" | "none" | "late";
 
 export function OverviewView({ ctx }: { ctx: AdminCtx }) {
-  const { data, corrections, go } = ctx;
+  const { data, corrections, leaves, go } = ctx;
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
 
   const lateIds = useMemo(() => new Set(data.lateToday.map((r) => r.userId)), [data.lateToday]);
   const offsiteIds = useMemo(() => new Set(data.offsiteToday.map((r) => r.userId)), [data.offsiteToday]);
-  const people = data.teamToday;
+  const people = data.teamToday.filter((p) => p.isActive !== false);
   const working = people.filter((p) => p.lastType === "in");
   const done = people.filter((p) => p.lastType === "out");
   const none = people.filter((p) => p.lastType === null);
@@ -37,6 +37,7 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
 
   const pending = [
     ...corrections.filter((c) => c.status === "pending").map((c) => ({ key: `c${c.id}`, name: c.fullName, text: "Xin sửa công" })),
+    ...leaves.filter((l) => l.status === "pending").map((l) => ({ key: `l${l.id}`, name: l.fullName, text: `Xin ${LEAVE_LABEL[l.kind]?.toLowerCase() ?? "nghỉ"}` })),
     ...data.overtimePending.map((r) => ({ key: `o${r.id}`, name: r.fullName ?? "", text: `Tăng ca ${r.overtimeMinutes} phút` })),
   ];
 

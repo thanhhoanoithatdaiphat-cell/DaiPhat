@@ -7,13 +7,16 @@ import { errorText, fieldClass, primaryBtn, secondaryBtn } from "@/components/ui
 import { InviteCodeCard } from "@/components/invite-card";
 import {
   createCorrection,
+  createLeaveRequest,
   getPunchPhoto,
   listCorrections,
+  listLeaves,
   listHistory,
   listRankings,
   exportTimesheet,
   punch,
   reviewCorrection,
+  reviewLeave,
   reviewOvertime,
   saveCompany,
   saveLocation,
@@ -23,6 +26,7 @@ import {
 } from "@/lib/attendance.functions";
 import type {
   CorrectionRow,
+  LeaveRow,
   LocationRow,
   PersonRow,
   PunchResult,
@@ -440,7 +444,7 @@ export function ProfilePanel({
   const [employeeCode, setEmployeeCode] = useState(data.profile.employeeCode ?? "");
   const [department, setDepartment] = useState(data.profile.department ?? "");
   const [jobTitle, setJobTitle] = useState(data.profile.jobTitle ?? "");
-
+  const [startedOn, setStartedOn] = useState(data.profile.startedOn ?? "");
   const [avatar, setAvatar] = useState(data.profile.avatar ?? "");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -536,7 +540,8 @@ export function ProfilePanel({
           <input className={fieldClass} value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} maxLength={60} placeholder="VD: Chuyên viên" />
         </label>
         <label className="block space-y-1 text-sm">
-
+          Ngày vào làm
+          <input className={fieldClass} type="date" value={startedOn} max={vnDateKey()} onChange={(e) => setStartedOn(e.target.value)} />
         </label>
         {error ? <p className="text-sm text-clay">{error}</p> : null}
         {saved ? <p className="text-sm text-ok">Đã lưu hồ sơ.</p> : null}
@@ -915,6 +920,7 @@ export function RequestsPanel({
         <button className={primaryBtn} type="submit" disabled={busy}>{busy ? "Đang gửi…" : "Gửi đơn"}</button>
       </form>
       {error ? <p className="text-sm text-clay">{error}</p> : null}
+      <LeaveSection canReview={canReview} userId={userId} onChanged={onChanged} />
       <section className="space-y-2">
         <h3 className="font-semibold">{canReview ? "Tất cả đơn" : "Đơn của tôi"}</h3>
         {rows == null ? <p className="text-sm text-muted">Đang tải đơn…</p> : null}
@@ -935,6 +941,147 @@ export function RequestsPanel({
           </article>
         ))}
       </section>
+    </div>
+  );
+}
+
+const LEAVE_KIND_LABEL: Record<string, string> = {
+  phep: "Nghỉ phép",
+  om: "Nghỉ ốm",
+  thaisan: "Thai sản",
+  khac: "Nghỉ khác",
+};
+
+function LeaveSection({ canReview, userId, onChanged }: { canReview: boolean; userId: string; onChanged: () => Promise<void> }) {
+  const [rows, setRows] = useState<LeaveRow[] | null>(null);
+  const [error, setError] = useState("");
+  const [date, setDate] = useState(vnDateKey());
+  const [kind, setKind] = useState("phep");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [reviewNotes, setReviewNotes] = useState<Record<number, string>>({});
+
+  async function load() {
+    setRows(await listLeaves());
+  }
+  useEffect(() => {
+    let cancelled = false;
+    listLeaves()
+      .then((next) => {
+        if (!cancelled) setRows(next);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(errorText(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await createLeaveRequest({ data: { leaveDate: date, kind, note } });
+      setNote("");
+      await load();
+      await onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function review(id: number, decision: "approved" | "rejected") {
+    setError("");
+    try {
+      await reviewLeave({ data: { id, decision, reviewNote: reviewNotes[id] ?? "" } });
+      await load();
+      await onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }
+
+  const pending = (rows ?? []).filter((row) => row.status === "pending" && row.userId !== userId);
+  const mine = (rows ?? []).filter((row) => row.userId === userId);
+
+  return (
+    <div className="space-y-4">
+      {canReview && pending.length ? (
+        <section className="space-y-2">
+          <div className="flex items-end justify-between">
+            <h2 className="font-display text-2xl font-semibold">Đơn nghỉ chờ duyệt</h2>
+            <p className="text-sm font-semibold tabular-nums text-clay">{pending.length}</p>
+          </div>
+          {pending.map((row) => (
+            <article key={row.id} className="space-y-3 rounded-md border border-line bg-card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold">{row.fullName}</p>
+                  <p className="text-sm text-muted">{formatVnDay(row.leaveDate)}</p>
+                </div>
+                <span className="rounded-full bg-sand px-2 py-1 text-xs font-semibold">{LEAVE_KIND_LABEL[row.kind] ?? row.kind}</span>
+              </div>
+              <p className="text-sm">{row.note}</p>
+              <input
+                className={fieldClass}
+                placeholder="Ghi chú khi duyệt, nếu cần"
+                value={reviewNotes[row.id] ?? ""}
+                onChange={(e) => setReviewNotes((current) => ({ ...current, [row.id]: e.target.value }))}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" className={primaryBtn} onClick={() => void review(row.id, "approved")}>Duyệt</button>
+                <button type="button" className={secondaryBtn} onClick={() => void review(row.id, "rejected")}>Từ chối</button>
+              </div>
+            </article>
+          ))}
+        </section>
+      ) : null}
+      <form className="space-y-3 rounded-md border border-line bg-card p-4" onSubmit={submit}>
+        <h2 className="font-display text-2xl font-semibold">Xin nghỉ</h2>
+        <p className="text-sm text-muted">Mỗi đơn là một ngày. Được duyệt thì ngày đó không bị tính vắng.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="space-y-1 text-sm">
+            Ngày nghỉ
+            <input className={fieldClass} type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+          </label>
+          <label className="space-y-1 text-sm">
+            Loại nghỉ
+            <select className={fieldClass} value={kind} onChange={(e) => setKind(e.target.value)}>
+              <option value="phep">Nghỉ phép</option>
+              <option value="om">Nghỉ ốm</option>
+              <option value="thaisan">Thai sản</option>
+              <option value="khac">Khác</option>
+            </select>
+          </label>
+        </div>
+        <label className="block space-y-1 text-sm">
+          Lý do
+          <textarea className="min-h-20 w-full rounded-md border border-line bg-card px-3 py-2 text-base outline-none focus:border-ink" value={note} onChange={(e) => setNote(e.target.value)} required minLength={3} maxLength={300} />
+        </label>
+        <button className={primaryBtn} type="submit" disabled={busy}>{busy ? "Đang gửi…" : "Gửi đơn nghỉ"}</button>
+        {error ? <p className="text-sm text-clay">{error}</p> : null}
+      </form>
+      {mine.length ? (
+        <section className="space-y-2">
+          <h3 className="font-semibold">Đơn nghỉ của tôi</h3>
+          {mine.map((row) => (
+            <article key={`mine-${row.id}`} className="rounded-md border border-line bg-card px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-medium">{formatVnDay(row.leaveDate)} · {LEAVE_KIND_LABEL[row.kind] ?? row.kind}</p>
+                <Badge tone={row.status === "approved" ? "ok" : row.status === "rejected" ? "late" : "muted"}>
+                  {row.status === "approved" ? "Đã duyệt" : row.status === "rejected" ? "Từ chối" : "Chờ duyệt"}
+                </Badge>
+              </div>
+              <p className="mt-1 text-sm">{row.note}</p>
+              {row.reviewNote ? <p className="mt-1 text-sm text-muted">Ghi chú duyệt: {row.reviewNote}</p> : null}
+            </article>
+          ))}
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -1310,6 +1457,17 @@ export function SettingsForm({ data, onChanged }: { data: WorkspaceData; onChang
           <input className={fieldClass} type="number" min={0} max={20} value={settings.maxCorrections} onChange={(e) => setSettings({ ...settings, maxCorrections: Number(e.target.value) })} />
         </label>
       </div>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="space-y-1 text-sm">
+          Đủ 1 công từ (giờ làm)
+          <input className={fieldClass} type="number" min={1} max={16} step={0.5} value={settings.fullDayMinutes / 60} onChange={(e) => setSettings({ ...settings, fullDayMinutes: Math.round(Number(e.target.value) * 60) })} />
+        </label>
+        <label className="space-y-1 text-sm">
+          Được 0.5 công từ (giờ làm)
+          <input className={fieldClass} type="number" min={0.5} max={16} step={0.5} value={settings.halfDayMinutes / 60} onChange={(e) => setSettings({ ...settings, halfDayMinutes: Math.round(Number(e.target.value) * 60) })} />
+        </label>
+      </div>
+      <p className="text-xs text-muted">Giờ làm là tổng các đoạn vào–ra trong ngày. Dưới mức nửa công thì tính 0.</p>
       <label className="flex items-center gap-3 text-sm">
         <input type="checkbox" checked={settings.rankingsEnabled} onChange={(e) => setSettings({ ...settings, rankingsEnabled: e.target.checked })} />
         Bật bảng xếp hạng tháng
@@ -1435,16 +1593,18 @@ function contactLine(person: PersonRow): string {
   return person.email ?? "Chưa có số";
 }
 
-function PersonCard({
+export function PersonCard({
   person,
   selfId,
   onChanged,
+  defaultOpen = false,
 }: {
   person: PersonRow;
   selfId: string;
   onChanged: () => Promise<void>;
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [fullName, setFullName] = useState(person.fullName);

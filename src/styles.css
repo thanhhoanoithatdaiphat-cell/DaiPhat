@@ -116,11 +116,22 @@
 .btn-3d-secondary:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 0 0 1.5px var(--color-ink); }
 
 /* Nút chấm công: logo tròn, vành vàng, phát sáng */
+/* Màn Chấm công thu gọn dần khi máy có cỡ chữ lớn hoặc màn thấp (đơn vị rem nên tự theo cỡ chữ) */
+.pz { container-type: size; container-name: punch; }
+@container punch (max-height: 42rem) { .pz-hide-compact { display: none; } }
+@container punch (max-height: 34rem) {
+  .pz-hide-tight { display: none; }
+  .pz-clock { font-size: 2.5rem; }
+  .pz-title { font-size: 1.25rem; }
+}
+
+/* Vùng chứa nút: nút tự co theo chỗ còn trống, không phụ thuộc cỡ chữ của máy */
+.punch-zone { container-type: size; }
 .punch-float {
   position: relative;
   display: grid;
-  width: clamp(5.5rem, calc(100dvh - 37rem), 12.5rem);
-  height: clamp(5.5rem, calc(100dvh - 37rem), 12.5rem);
+  width: clamp(56px, min(calc(100cqh - 4rem), 62cqw), 12.5rem);
+  height: clamp(56px, min(calc(100cqh - 4rem), 62cqw), 12.5rem);
   place-items: center;
   border: 0;
   border-radius: 999px;

@@ -196,7 +196,7 @@ function TabButton({
       type="button"
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className={`flex min-h-16 flex-1 flex-col items-center justify-center gap-1 px-1 text-[0.7rem] font-semibold md:text-sm ${active ? "text-ice" : "text-muted"}`}
+      className={`flex min-h-16 flex-1 flex-col items-center justify-center gap-1 px-1 text-[0.7rem] font-semibold whitespace-nowrap md:text-sm ${active ? "text-ice" : "text-muted"}`}
     >
       <span className="relative">
         <Icon className="size-5" strokeWidth={active ? 2.25 : 1.75} />

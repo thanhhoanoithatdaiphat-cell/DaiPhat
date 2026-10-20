@@ -315,11 +315,11 @@ export function PunchPanel({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-[clamp(0.5rem,1.7dvh,1.25rem)] pb-4">
+    <div className="pz flex h-full min-h-0 flex-col gap-[clamp(0.4rem,1.7dvh,1.25rem)] pb-4">
       <section className="flex shrink-0 items-start justify-between gap-3 px-5 pt-[max(1rem,env(safe-area-inset-top))] md:px-8">
         <div className="min-w-0">
           <p className="text-xs text-muted">{dateLine()}</p>
-          <h1 className="font-display mt-0.5 truncate text-[1.6rem] leading-tight font-bold text-ink md:text-4xl">
+          <h1 className="pz-title font-display mt-0.5 truncate text-[1.6rem] leading-tight font-bold text-ink md:text-4xl">
             Chào {data.profile.fullName}
           </h1>
         </div>
@@ -334,10 +334,10 @@ export function PunchPanel({
           <p className="truncate text-sm font-semibold text-ink">
             {nearest?.name ?? (active[0]?.name || "Điểm chấm công")}
           </p>
-          <p className={`truncate text-xs ${nearest && nearest.dist > nearest.radius ? "text-clay" : "text-muted"}`}>
+          <p className={`pz-hide-tight truncate text-xs ${nearest && nearest.dist > nearest.radius ? "text-clay" : "text-muted"}`}>
             {nearest
               ? nearest.dist <= nearest.radius
-                ? `Trong phạm vi chấm công · cách ${formatMeters(nearest.dist)}`
+                ? `Trong phạm vi · cách ${formatMeters(nearest.dist)}`
                 : `Ngoài phạm vi · cách ${formatMeters(nearest.dist)}`
               : active.length === 0
                 ? "Chưa có điểm chấm công đang bật"
@@ -352,15 +352,15 @@ export function PunchPanel({
       </div>
 
       <div className="shrink-0 text-center">
-        <p className="font-display text-[clamp(2.75rem,8dvh,4.5rem)] leading-none font-bold tabular-nums text-ink md:text-[6.5rem]">
+        <p className="pz-clock font-display text-[clamp(2.75rem,8dvh,4.5rem)] leading-none font-bold tabular-nums text-ink md:text-[6.5rem]">
           {clock.time.slice(0, 5)}
         </p>
-        <p className="mt-1 text-xs text-muted">
+        <p className="pz-hide-compact mt-1 text-xs text-muted">
           Ca ngày · {data.settings.workStart} – {data.settings.workEnd}
         </p>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 py-3">
+      <div className="punch-zone flex min-h-0 flex-1 flex-col items-center justify-center px-5">
         <button
           type="button"
           disabled={busy || (!data.settings.allowOffsite && active.length === 0)}
@@ -404,20 +404,20 @@ export function PunchPanel({
       <div className="mx-5 grid shrink-0 grid-cols-2 gap-3 md:mx-8">
         <div className="rounded-xl border border-line bg-card px-4 py-2.5">
           <p className="text-xs text-muted">Giờ vào</p>
-          <p className="font-display text-[1.75rem] leading-tight font-bold tabular-nums text-ink">
+          <p className="font-display text-[1.75rem] leading-tight font-bold whitespace-nowrap tabular-nums text-ink">
             {firstIn ? vnTime(firstIn.punchedAt) : "--:--"}
           </p>
-          <p className={`text-xs font-semibold ${!firstIn ? "text-muted" : inLate ? "text-clay" : "text-ok"}`}>
+          <p className={`pz-hide-tight text-xs font-semibold ${!firstIn ? "text-muted" : inLate ? "text-clay" : "text-ok"}`}>
             {!firstIn ? "Chưa vào ca" : inLate ? `Muộn ${firstIn.lateMinutes} phút` : "Đúng giờ"}
           </p>
         </div>
         <div className="rounded-xl border border-line bg-card px-4 py-2.5">
           <p className="text-xs text-muted">Đã làm hôm nay</p>
-          <p className="font-display text-[1.75rem] leading-tight font-bold tabular-nums text-ink">
+          <p className="font-display text-[1.75rem] leading-tight font-bold whitespace-nowrap tabular-nums text-ink">
             {Math.floor(worked / 60)}h {String(worked % 60).padStart(2, "0")}
           </p>
           <p
-            className={`text-xs font-semibold ${worked >= data.settings.fullDayMinutes ? "text-ok" : worked >= data.settings.halfDayMinutes ? "text-ice" : "text-muted"}`}
+            className={`pz-hide-tight text-xs font-semibold ${worked >= data.settings.fullDayMinutes ? "text-ok" : worked >= data.settings.halfDayMinutes ? "text-ice" : "text-muted"}`}
           >
             {worked >= data.settings.fullDayMinutes ? "Đủ công" : worked >= data.settings.halfDayMinutes ? "Đủ nửa công" : "Chưa đủ công"}
           </p>
@@ -430,7 +430,7 @@ export function PunchPanel({
           <p className="font-display text-[1.75rem] leading-tight font-bold tabular-nums">
             {congText(cong)} / {standard || "–"}
           </p>
-          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-night/25">
+          <div className="pz-hide-compact mt-1.5 h-1.5 overflow-hidden rounded-full bg-night/25">
             <div className="h-full rounded-full bg-night" style={{ width: `${standard ? Math.min(100, (cong / standard) * 100) : 0}%` }} />
           </div>
         </div>

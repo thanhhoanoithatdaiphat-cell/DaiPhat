@@ -10,7 +10,7 @@ function Home() {
   const { user, isPending } = useCurrentUserState();
   if (isPending) {
     return (
-      <main className="tech-stage grid min-h-dvh place-items-center px-6 text-center text-ink">
+      <main className="theme-dark tech-stage grid min-h-dvh place-items-center px-6 text-center text-ink">
         <div className="space-y-3">
           <p className="text-xs font-semibold tracking-widest text-muted">VÀO CA</p>
           <Clock className="mx-auto size-8" />

@@ -97,13 +97,16 @@ export function AdminApp({ user, view, onView }: { user: AppUser; view: AdminVie
 
   return (
     <div className="flex min-h-dvh flex-col bg-paper text-ink lg:flex-row">
-      <aside className="safe-top bg-ink text-card lg:sticky lg:top-0 lg:flex lg:h-dvh lg:w-60 lg:shrink-0 lg:flex-col">
+      <aside className="safe-top bg-[#1C130C] text-card lg:sticky lg:top-0 lg:flex lg:h-dvh lg:w-60 lg:shrink-0 lg:flex-col">
         <div className="flex items-center justify-between px-5 pt-4 lg:block lg:pt-6">
-          <div>
-            <p className="font-display text-3xl leading-none font-bold">
-              Vào <span className="text-ice">Ca</span>
-            </p>
-            <p className="mt-1 truncate text-xs text-card/60">{data.companyName}</p>
+          <div className="flex items-center gap-3">
+            <img src="/punch-logo.png" alt="Đại Phát Furniture" className="size-12 rounded-full" />
+            <div>
+              <p className="font-display text-3xl leading-none font-bold">
+                Vào <span className="text-ice">Ca</span>
+              </p>
+              <p className="mt-1 truncate text-xs text-card/60">{data.companyName}</p>
+            </div>
           </div>
           <p className="text-xs font-semibold text-ice lg:mt-4">{role === "admin" ? "Quản trị" : "Người duyệt"}</p>
         </div>

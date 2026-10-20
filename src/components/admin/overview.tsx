@@ -20,7 +20,7 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
   const none = people.filter((p) => p.lastType === null);
 
   const stats: { id: Filter; label: string; value: number; tone: string }[] = [
-    { id: "working", label: "Đang làm", value: working.length, tone: "text-ok" },
+    { id: "working", label: "Đang làm", value: working.length, tone: "text-ice" },
     { id: "done", label: "Đã ra ca", value: done.length, tone: "text-ink" },
     { id: "none", label: "Chưa vào", value: none.length, tone: "text-clay" },
     { id: "late", label: "Đi muộn", value: lateIds.size, tone: "text-ink" },
@@ -43,6 +43,7 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
 
   return (
     <div className="space-y-6">
+      <section className="theme-dark hero-dark space-y-5 rounded-2xl p-5 text-ink lg:p-7">
       <h1 className="font-display text-4xl font-semibold">Tổng quan hôm nay</h1>
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
@@ -51,7 +52,7 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
             key={s.id}
             type="button"
             onClick={() => setFilter((f) => (f === s.id ? "all" : s.id))}
-            className={`rounded-lg border-[1.5px] border-ink bg-card p-4 text-left ${filter === s.id ? "shadow-[0_4px_0_var(--color-ink)]" : ""}`}
+            className={`rounded-xl border border-line bg-card/70 p-4 text-left ${filter === s.id ? "border-ice shadow-[0_0_0_2px_var(--color-ice)]" : ""}`}
             aria-pressed={filter === s.id}
           >
             <p className="text-sm text-muted">{s.label}</p>
@@ -60,6 +61,7 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
           </button>
         ))}
       </div>
+      </section>
 
       <div className="grid items-start gap-6 xl:grid-cols-[1fr_22rem]">
         <Card

@@ -61,10 +61,10 @@ export function Workspace({ user }: { user: AppUser }) {
   const punching = tab === "punch";
 
   return (
-    <div className="flex h-dvh justify-center bg-paper">
+    <div className="theme-dark flex h-dvh justify-center bg-paper">
       <div className="flex h-full w-full max-w-md flex-col bg-paper md:max-w-3xl lg:max-w-4xl">
         {punching ? null : (
-          <header className="safe-top flex items-center justify-between gap-3 border-b-2 border-ink bg-card px-5 pb-4">
+          <header className="safe-top flex items-center justify-between gap-3 border-b border-line bg-card px-5 pb-4">
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-ink">{data?.companyName ?? "VÀO CA"}</p>
               <p className="truncate font-display text-3xl font-semibold">{TAB_TITLE[tab]}</p>
@@ -109,7 +109,7 @@ export function Workspace({ user }: { user: AppUser }) {
             </div>
           ) : null}
         </main>
-        <nav className="tabbar shrink-0 border-t-2 border-ink bg-card" aria-label="Tính năng">
+        <nav className="tabbar shrink-0 border-t border-line bg-card" aria-label="Tính năng">
           <div className="flex">
             {items.map((item) => (
               <TabButton

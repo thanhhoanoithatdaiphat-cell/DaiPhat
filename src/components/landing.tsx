@@ -26,10 +26,10 @@ function useFace() {
 export function Landing() {
   const face = useFace();
   return (
-    <div className="tech-stage flex min-h-dvh justify-center text-ink">
+    <div className="theme-dark tech-stage flex min-h-dvh justify-center text-ink">
       <div className="flex w-full max-w-md flex-col">
-        <header className="safe-top relative overflow-hidden bg-ink px-6 pb-12 text-card">
-          <p className="text-sm font-semibold text-ice">Vào Ca · Đại Phát</p>
+        <header className="safe-top relative overflow-hidden hero-dark px-6 pb-12 text-ink">
+          <div className="flex items-center gap-3"><img src="/punch-logo.png" alt="Đại Phát Furniture" className="size-14 rounded-full" /><p className="text-sm font-semibold text-ice">Vào Ca · Đại Phát</p></div>
           <h1 className="font-display mt-8 text-[5.25rem] leading-[0.88] font-bold tracking-tight">
             Đúng chỗ
             <br />
@@ -37,9 +37,9 @@ export function Landing() {
             <br />
             <span className="text-ice">đúng giờ.</span>
           </h1>
-          <p className="mt-6 font-display text-2xl font-medium tabular-nums text-card/70">
+          <p className="mt-6 font-display text-2xl font-medium tabular-nums text-ink/70">
             {face.time}
-            <span className="px-2 text-card/30">/</span>
+            <span className="px-2 text-ink/30">/</span>
             <span className="font-sans text-sm">{face.date}</span>
           </p>
           <span

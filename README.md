@@ -62,3 +62,8 @@ Nhân viên gửi đơn trong tab Đơn (mỗi đơn một ngày: phép, ốm, t
 `public/.well-known/assetlinks.json` đã khai báo gói `vn.daiphat.vaoca`. Dùng PWABuilder hoặc Bubblewrap (Trusted Web Activity)
 trỏ tới địa chỉ Vercel, rồi điền `sha256_cert_fingerprints` của khóa ký APK vào file này và deploy lại.
 # DaiPhat
+
+## Giao diện mới (nền tối nâu đen + vàng logo)
+- Màu nằm ở `src/styles.css`: bảng màu sáng (trang quản trị `/admin`) ở khối `@theme`, nền tối cho app điện thoại và đăng nhập ở lớp `.theme-dark`.
+- Logo công ty: `public/punch-logo.png` (giữ nguyên bản gốc). Icon cài app: `public/icon-*.png`.
+- Nút chấm công: lớp `.punch-float` trong `src/styles.css`.

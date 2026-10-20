@@ -44,7 +44,10 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
   return (
     <div className="space-y-6">
       <section className="theme-dark hero-dark space-y-5 rounded-2xl p-5 text-ink lg:p-7">
-      <h1 className="font-display text-4xl font-semibold">Tổng quan hôm nay</h1>
+      <div>
+        <h1 className="font-display text-4xl font-semibold">Tổng quan hôm nay</h1>
+        <p className="text-sm text-muted">Tự làm mới mỗi 30 giây · bấm vào số để lọc danh sách</p>
+      </div>
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {stats.map((s) => (
@@ -52,7 +55,7 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
             key={s.id}
             type="button"
             onClick={() => setFilter((f) => (f === s.id ? "all" : s.id))}
-            className={`rounded-xl border border-line bg-card/70 p-4 text-left ${filter === s.id ? "border-ice shadow-[0_0_0_2px_var(--color-ice)]" : ""}`}
+            className={`rounded-xl p-3 text-left hover:bg-card/40 ${filter === s.id ? "bg-card/60 ring-2 ring-ice" : ""}`}
             aria-pressed={filter === s.id}
           >
             <p className="text-sm text-muted">{s.label}</p>

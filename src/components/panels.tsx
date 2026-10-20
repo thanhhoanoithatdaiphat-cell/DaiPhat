@@ -91,24 +91,6 @@ function useClock() {
   return { time, hello };
 }
 
-function workedPhrase(rows: PunchRow[]): string | null {
-  const sorted = [...rows].sort((a, b) => a.punchedAt.localeCompare(b.punchedAt));
-  let minutes = 0;
-  let openIn: string | null = null;
-  for (const row of sorted) {
-    if (row.type === "in") openIn = row.punchedAt;
-    else if (openIn) {
-      minutes += Math.max(0, (new Date(row.punchedAt).getTime() - new Date(openIn).getTime()) / 60000);
-      openIn = null;
-    }
-  }
-  if (minutes <= 0 && !openIn) return null;
-  const h = Math.floor(minutes / 60);
-  const m = Math.round(minutes % 60);
-  const clock = `${h} giờ ${m} phút`;
-  return openIn ? (minutes > 0 ? `${clock}, đang trong ca` : "Đang trong ca") : clock;
-}
-
 function punchLabel(row: PunchRow, settings: Settings): string {
   if (row.status === "corrected") return row.type === "in" ? "Vào — đã sửa" : "Ra — đã sửa";
   if (row.type === "in") {
@@ -137,35 +119,39 @@ function hmMin(hm: string): number {
   return (h || 0) * 60 + (m || 0);
 }
 
-function ShiftTape({ start, end, time }: { start: string; end: string; time: string }) {
+function shiftProgress(start: string, end: string, time: string): { pct: number; note: string } {
   const from = hmMin(start);
   const to = Math.max(from + 60, hmMin(end));
   const now = hmMin(time.slice(0, 5));
   const pct = Math.max(0, Math.min(100, ((now - from) / (to - from)) * 100));
   const rest = to - now;
-  return (
-    <div className="mt-2 md:mt-6">
-      <div className="tape" role="img" aria-label={`Ca ${start} đến ${end}`}>
-        <div className="tape-mark" style={{ left: `calc(1.375rem + (100% - 2.75rem) * ${pct / 100})` }} />
-        <div className="tape-ticks" />
-        <div className="font-display mt-0.5 flex justify-between px-[1.375rem] text-lg font-semibold">
-          <span>{start}</span>
-          <span>{end}</span>
-        </div>
-      </div>
-      <p className="px-6 pt-2 text-xs text-muted">
-        {now < from ? "Chưa đến giờ ca" : rest > 0 ? `Còn ${Math.floor(rest / 60)} giờ ${rest % 60} phút đến hết ca` : "Đã hết ca"}
-      </p>
-    </div>
-  );
+  const note = now < from ? "Chưa đến giờ ca" : rest > 0 ? `Còn ${Math.floor(rest / 60)} giờ ${rest % 60} phút đến hết ca` : "Đã hết ca";
+  return { pct, note };
+}
+
+function workedToday(rows: PunchRow[]): { minutes: number; open: boolean } {
+  const sorted = [...rows].sort((a, b) => a.punchedAt.localeCompare(b.punchedAt));
+  let minutes = 0;
+  let openIn: string | null = null;
+  for (const row of sorted) {
+    if (row.type === "in") openIn = row.punchedAt;
+    else if (openIn) {
+      minutes += Math.max(0, (new Date(row.punchedAt).getTime() - new Date(openIn).getTime()) / 60000);
+      openIn = null;
+    }
+  }
+  if (openIn) minutes += Math.max(0, (Date.now() - new Date(openIn).getTime()) / 60000);
+  return { minutes, open: openIn !== null };
 }
 
 export function PunchPanel({
   data,
   onChanged,
+  onRequests,
 }: {
   data: WorkspaceData;
   onChanged: () => Promise<void>;
+  onRequests?: () => void;
 }) {
   const [cameraFor, setCameraFor] = useState<"in" | "out" | null>(null);
   const [busy, setBusy] = useState(false);
@@ -178,8 +164,14 @@ export function PunchPanel({
   const last = data.today[data.today.length - 1];
   const clock = useClock();
   const primary: "in" | "out" = last?.type === "in" ? "out" : "in";
-  const span = workedPhrase(data.today);
-  const initial = (data.profile.fullName || "N").trim().charAt(0).toUpperCase();
+  const firstIn = data.today.find((r) => r.type === "in");
+  const worked = workedToday(data.today);
+  const workedText = worked.minutes > 0 ? `${Math.floor(worked.minutes / 60)}h ${String(Math.floor(worked.minutes % 60)).padStart(2, "0")}` : "0h 00";
+  const inLate = firstIn ? isLate(firstIn.lateMinutes, data.settings.lateMinutes) && vnWeekday(firstIn.punchedAt) !== 0 : false;
+  const inNote = !firstIn ? "Chưa vào ca" : inLate ? `Muộn ${firstIn.lateMinutes} phút` : "Đúng giờ";
+  const workedNote =
+    worked.minutes >= data.settings.fullDayMinutes ? "Đủ công" : worked.open ? "Đang trong ca" : worked.minutes > 0 ? "Chưa đủ công" : "Chưa vào ca";
+  const shift = shiftProgress(data.settings.workStart, data.settings.workEnd, clock.time);
 
   async function submit(type: "in" | "out", lat: number, lng: number, photo: string, locationSource: "gps" | "manual", accuracy?: number) {
     setBusy(true);
@@ -262,51 +254,52 @@ export function PunchPanel({
   }
 
   return (
-    <div className="tech-stage min-h-full pb-4 text-ink md:pb-6">
-      <section className="safe-top px-5 pb-2 md:px-8 md:pb-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-ink">VÀO CA</p>
-            <p className="mt-1 text-sm text-muted md:mt-2">{clock.hello}</p>
-            <p className="text-xl font-medium md:text-2xl">{data.profile.fullName}</p>
-          </div>
-          <div className="hero-account text-card">
+    <div className="tech-stage flex min-h-full flex-col pb-4 text-ink md:pb-6">
+      <header className="safe-top flex items-center justify-between gap-3 px-5 pb-1 md:px-8">
+        <div className="min-w-0">
+          <p className="truncate text-sm text-muted">{todayLong()}</p>
+          <p className="truncate text-xl font-semibold md:text-2xl">
+            {clock.hello}, {data.profile.fullName}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <div className="hero-account">
             <UserButton />
           </div>
+          <img src="/punch-logo.png" alt="Đại Phát Furniture" className="size-12 rounded-full md:size-14" />
         </div>
-        <p className="font-display mt-2 text-[4.25rem] leading-none font-semibold tabular-nums tracking-tight md:mt-4 md:text-[6.5rem] md:leading-[0.9]">{clock.time.slice(0, 5)}<span className="ml-1 text-2xl font-medium text-muted md:ml-1.5 md:text-3xl">{clock.time.slice(6)}</span></p>
-        <p className="mt-1 text-sm text-muted">{todayLong()}</p>
-      </section>
+      </header>
 
-      <ShiftTape start={data.settings.workStart} end={data.settings.workEnd} time={clock.time} />
-
-      <div className="surface-pass mx-4 mt-3 rounded-lg bg-card px-4 pt-4 pb-5 text-ink md:mx-8 md:mt-6 md:px-5 md:pt-5 md:pb-7">
-        <div className="flex items-center justify-between gap-3 border-b border-line pb-4">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-ink">{data.companyName}</p>
-            <p className="mt-1 truncate text-lg font-medium">{ROLE_LABEL[data.profile.role]}</p>
+      {active.length > 0 || data.settings.allowOffsite ? (
+        <div className="mx-5 mt-3 flex items-center gap-3 rounded-xl border border-line bg-card/60 px-3.5 py-2.5 md:mx-8">
+          <MapPin className="size-5 shrink-0 text-ok" strokeWidth={2} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold">
+              {active[0]?.name ?? data.companyName}
+              {active.length > 1 ? ` +${active.length - 1} điểm` : ""}
+            </p>
+            <p className="truncate text-xs text-muted">
+              {data.settings.allowOffsite ? "Được chấm ngoài điểm, sẽ báo quản trị" : `Điểm chấm công · bán kính ${active[0]?.radiusMeters ?? 0} m`}
+            </p>
           </div>
-          <span className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-full border border-line text-sm font-medium">
-            {data.profile.avatar ? (
-              <img src={data.profile.avatar} alt="" className="size-11 object-cover" />
-            ) : (
-              initial
-            )}
-          </span>
+          <span className="shrink-0 text-xs font-semibold text-ok">GPS</span>
         </div>
-        <p className="mt-4 text-sm leading-6 text-muted">
-          {last
-            ? `${last.type === "in" ? "Đang trong ca" : "Đã ra ca"} · ${vnTime(last.punchedAt)}`
-            : `Ca ${data.settings.workStart} – ${data.settings.workEnd}`}
-          {span ? ` · ${span}` : ""}
-        </p>
+      ) : null}
 
+      <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-4">
+        <p className="font-display text-[clamp(3rem,15vw,4rem)] leading-none font-semibold tabular-nums tracking-tight md:text-[6rem]">
+          {clock.time.slice(0, 5)}
+          <span className="ml-1 text-2xl font-medium text-muted md:text-3xl">{clock.time.slice(6)}</span>
+        </p>
+        <p className="text-sm text-muted">
+          Ca {data.settings.workStart} – {data.settings.workEnd}
+        </p>
         <button
           type="button"
           disabled={busy || (!data.settings.allowOffsite && active.length === 0)}
           onClick={() => locateFirst(primary)}
           aria-label={busy ? "Đang ghi" : primary === "in" ? "Vào ca" : "Ra ca"}
-          className="punch-float mx-auto mt-5 disabled:opacity-40 md:mt-10"
+          className="punch-float mt-4 disabled:opacity-40 md:mt-8"
         >
           <span className="punch-halo" aria-hidden="true" />
           <span className="punch-invite" aria-hidden="true" />
@@ -314,23 +307,43 @@ export function PunchPanel({
             <img src="/punch-logo.png" alt="" className="punch-logo" />
           </span>
         </button>
-        <p className="mt-3 text-center font-display text-2xl font-bold md:mt-6 md:text-3xl">{primary === "in" ? "VÀO CA" : "RA CA"}</p>
+        <p className="mt-6 font-display text-2xl font-bold tracking-wide text-ice md:mt-10 md:text-3xl">
+          {primary === "in" ? "CHẠM ĐỂ VÀO CA" : "CHẠM ĐỂ RA CA"}
+        </p>
         {active.length === 0 && !data.settings.allowOffsite ? (
-          <p className="mt-3 text-center text-sm text-clay">Chưa có điểm chấm công đang bật.</p>
+          <p className="px-6 text-center text-sm text-clay">Chưa có điểm chấm công đang bật.</p>
         ) : null}
       </div>
 
-      {active.length > 0 && !data.settings.allowOffsite ? (
-        <ul className="mt-2 flex gap-2 overflow-x-auto px-4 pb-1 md:mt-4">
-          {active.map((loc) => (
-            <li key={loc.id} className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-card px-3 py-2 text-sm text-ink">
-              <MapPin className="size-4 text-ink" strokeWidth={1.5} />
-              <span>{loc.name}</span>
-              <span className="text-muted">{loc.radiusMeters} m</span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <div className="space-y-2.5 px-5 md:px-8">
+        <div className="grid grid-cols-2 gap-2.5">
+          <div className="rounded-xl border border-line bg-card/60 px-3.5 py-3">
+            <p className="text-xs text-muted">Giờ vào</p>
+            <p className="font-display text-3xl font-semibold tabular-nums">{firstIn ? vnTime(firstIn.punchedAt) : "--:--"}</p>
+            <p className={`text-xs font-semibold ${!firstIn ? "text-muted" : inLate ? "text-clay" : "text-ok"}`}>{inNote}</p>
+          </div>
+          <div className="rounded-xl border border-line bg-card/60 px-3.5 py-3">
+            <p className="text-xs text-muted">Đã làm hôm nay</p>
+            <p className="font-display text-3xl font-semibold tabular-nums">{workedText}</p>
+            <p className={`text-xs font-semibold ${workedNote === "Đủ công" ? "text-ok" : "text-muted"}`}>{workedNote}</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-3 rounded-xl bg-ice px-3.5 py-3 text-[#2B1D12]">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium">Ca làm hôm nay</p>
+            <p className="font-display text-3xl leading-tight font-bold tabular-nums">
+              {data.settings.workStart} – {data.settings.workEnd}
+            </p>
+            <div className="mt-1.5 h-1.5 rounded-full bg-[#2B1D12]/20">
+              <div className="h-full rounded-full bg-[#2B1D12]" style={{ width: `${shift.pct}%` }} />
+            </div>
+            <p className="mt-1 text-xs">{shift.note}</p>
+          </div>
+          <button type="button" onClick={() => onRequests?.()} className="min-h-11 shrink-0 rounded-lg bg-[#2B1D12] px-4 text-sm font-semibold text-ice">
+            Gửi đơn
+          </button>
+        </div>
+      </div>
 
       <div className="space-y-3 px-4 pt-4">
         {result ? (

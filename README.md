@@ -64,6 +64,6 @@ trỏ tới địa chỉ Vercel, rồi điền `sha256_cert_fingerprints` của 
 # DaiPhat
 
 ## Giao diện mới (nền tối nâu đen + vàng logo)
+- Bố cục màn Chấm công: lời chào + logo, thẻ điểm chấm công, đồng hồ, nút logo, hai thẻ giờ vào / giờ làm, thẻ vàng ca làm kèm nút Gửi đơn (`PunchPanel` trong `src/components/panels.tsx`).
 - Màu nằm ở `src/styles.css`: bảng màu sáng (trang quản trị `/admin`) ở khối `@theme`, nền tối cho app điện thoại và đăng nhập ở lớp `.theme-dark`.
 - Logo công ty: `public/punch-logo.png` (giữ nguyên bản gốc). Icon cài app: `public/icon-*.png`.
-- Nút chấm công: lớp `.punch-float` trong `src/styles.css`.

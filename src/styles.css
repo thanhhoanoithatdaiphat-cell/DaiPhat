@@ -92,8 +92,8 @@
 .punch-float {
   position: relative;
   display: grid;
-  width: 11.5rem;
-  height: 11.5rem;
+  width: clamp(9.5rem, 46vw, 11.5rem);
+  height: clamp(9.5rem, 46vw, 11.5rem);
   place-items: center;
   border: 0;
   border-radius: 999px;
@@ -179,38 +179,9 @@
 
 /* Mobile compact: giảm kích thước nút và khoảng cách trên màn thấp */
 @media (max-height: 740px) {
-  .punch-float { width: 8.5rem; height: 8.5rem; }
-  .punch-invite { inset: -12px; }
+  .punch-float { width: 9rem; height: 9rem; }
+  .punch-invite { inset: -14px; }
 }
 @media (min-width: 768px) {
   .punch-float { width: 12.5rem; height: 12.5rem; }
 }
-
-
-/* ===== Giao diện nền tối: app điện thoại, đăng nhập ===== */
-.theme-dark {
-  --color-paper: #1C130C;
-  --color-card: #2B1E13;
-  --color-ink: #FAF3E3;
-  --color-pine: #FAF3E3;
-  --color-pine-deep: #0F0A06;
-  --color-sand: #3A2A1B;
-  --color-muted: #CDBB9E;
-  --color-line: #4F3B28;
-  --color-clay: #FF9C8A;
-  --color-ok: #8FD3B0;
-  color-scheme: dark;
-}
-body:has(.theme-dark) { background: #1C130C; }
-.theme-dark.tech-stage, .theme-dark .tech-stage {
-  background: radial-gradient(120% 55% at 50% 30%, #3B2A18 0%, #1C130C 65%);
-}
-.theme-dark .border-ink { border-color: var(--color-line); }
-.theme-dark .surface-pass { box-shadow: 0 0 0 1px var(--color-line); }
-.theme-dark .btn-3d-secondary { box-shadow: 0 0 0 1.5px var(--color-line), 0 3px 0 var(--color-line); }
-.theme-dark .btn-3d-secondary:active:not(:disabled) { box-shadow: 0 0 0 1.5px var(--color-line); }
-.theme-dark .hero-account button, .theme-dark .account-compact button { box-shadow: 0 0 0 1.5px var(--color-line); }
-.theme-dark .tabbar { background: #150E08; }
-
-/* Khối đầu trang quản trị */
-.hero-dark { background: radial-gradient(90% 160% at 85% 0%, #4A3320 0%, #1C130C 60%); }

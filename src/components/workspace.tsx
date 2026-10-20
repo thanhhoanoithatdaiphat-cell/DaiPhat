@@ -50,7 +50,7 @@ export function Workspace({ user }: { user: AppUser }) {
   const canReview = data?.profile.role === "admin" || data?.profile.role === "approver";
   const showRanks = Boolean(data?.settings.rankingsEnabled);
   const items: { id: Tab; label: string; icon: typeof Clock }[] = [
-    { id: "punch", label: "Chấm", icon: Clock },
+    { id: "punch", label: "Chấm công", icon: Clock },
     { id: "history", label: "Lịch sử", icon: CalendarDays },
     { id: "requests", label: "Đơn", icon: ClipboardList },
     { id: "profile", label: "Hồ sơ", icon: UserRound },
@@ -77,7 +77,7 @@ export function Workspace({ user }: { user: AppUser }) {
         <main className="min-h-0 flex-1 overflow-y-auto">
           {error ? <p className="px-4 pt-4 text-sm text-clay">{error}</p> : null}
           {!data && !error ? <p className="px-5 pt-8 text-sm text-muted">Đang mở bảng công…</p> : null}
-          {data && punching ? <PunchPanel data={data} onChanged={load} /> : null}
+          {data && punching ? <PunchPanel data={data} onChanged={load} onRequests={() => setTab("requests")} /> : null}
           {data && tab === "history" ? (
             <div className="px-4 py-4">
               <HistoryPanel settings={data.settings} />
@@ -151,9 +151,8 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 px-1 text-xs tracking-wide md:min-h-16 md:text-sm ${active ? "font-medium text-ink" : "text-muted"}`}
+      className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 px-1 text-xs tracking-wide md:min-h-16 md:text-sm ${active ? "font-semibold text-ice" : "text-muted"}`}
     >
-      <span className={`h-1 w-10 ${active ? "bg-ice" : "bg-transparent"}`} />
       <span className="relative">
         <Icon className="size-5" strokeWidth={active ? 2 : 1.5} />
         {badge > 0 ? (

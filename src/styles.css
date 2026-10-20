@@ -119,8 +119,8 @@
 .punch-float {
   position: relative;
   display: grid;
-  width: 12.5rem;
-  height: 12.5rem;
+  width: clamp(5.5rem, calc(100dvh - 33rem), 12.5rem);
+  height: clamp(5.5rem, calc(100dvh - 33rem), 12.5rem);
   place-items: center;
   border: 0;
   border-radius: 999px;
@@ -206,7 +206,6 @@
 
 /* Mobile compact: giảm kích thước nút và khoảng cách trên màn thấp */
 @media (max-height: 740px) {
-  .punch-float { width: 9.5rem; height: 9.5rem; }
   .punch-invite { inset: -12px; }
 }
 @media (min-width: 768px) {

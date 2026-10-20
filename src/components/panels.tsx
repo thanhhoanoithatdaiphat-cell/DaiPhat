@@ -315,20 +315,20 @@ export function PunchPanel({
   }
 
   return (
-    <div className="min-h-full pb-5 md:pb-8">
-      <section className="safe-top flex items-start justify-between gap-3 px-5 md:px-8">
+    <div className="flex h-full min-h-0 flex-col pb-3">
+      <section className="flex shrink-0 items-start justify-between gap-3 px-5 pt-[max(0.75rem,env(safe-area-inset-top))] md:px-8">
         <div className="min-w-0">
           <p className="text-xs text-muted">{dateLine()}</p>
-          <h1 className="font-display mt-0.5 truncate text-[1.7rem] leading-tight font-bold text-ink md:text-4xl">
+          <h1 className="font-display mt-0.5 truncate text-[1.6rem] leading-tight font-bold text-ink md:text-4xl">
             Chào {data.profile.fullName}
           </h1>
         </div>
-        <span className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-full bg-night-deep ring-2 ring-ice">
+        <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-full bg-night-deep ring-2 ring-ice">
           <img src={data.profile.avatar || "/punch-logo-dark.png"} alt="" className="size-full object-cover" />
         </span>
       </section>
 
-      <div className="mx-4 mt-4 flex items-center gap-3 rounded-xl border border-line bg-card px-3.5 py-3 md:mx-8">
+      <div className="mx-4 mt-3 flex shrink-0 items-center gap-3 rounded-xl border border-line bg-card px-3.5 py-2.5 md:mx-8">
         <MapPin className="size-5 shrink-0 text-ice" strokeWidth={2} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-ink">
@@ -351,8 +351,8 @@ export function PunchPanel({
         <span className={`shrink-0 text-xs font-semibold ${gpsLabel.cls}`}>{gpsLabel.text}</span>
       </div>
 
-      <div className="mt-5 text-center">
-        <p className="font-display text-[4.5rem] leading-none font-bold tabular-nums text-ink md:text-[6.5rem]">
+      <div className="mt-2 shrink-0 text-center">
+        <p className="font-display text-[clamp(2.75rem,8dvh,4.5rem)] leading-none font-bold tabular-nums text-ink md:text-[6.5rem]">
           {clock.time.slice(0, 5)}
         </p>
         <p className="mt-1 text-xs text-muted">
@@ -360,7 +360,7 @@ export function PunchPanel({
         </p>
       </div>
 
-      <div className="mt-7 flex flex-col items-center md:mt-10">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-3">
         <button
           type="button"
           disabled={busy || (!data.settings.allowOffsite && active.length === 0)}
@@ -374,27 +374,46 @@ export function PunchPanel({
             <img src="/punch-logo-dark.png" alt="" className="punch-logo" />
           </span>
         </button>
-        <p className="mt-5 text-center font-display text-xl font-bold tracking-wide text-ice md:text-2xl">
+        <p className="mt-4 text-center font-display text-xl font-bold tracking-wide text-ice md:text-2xl">
           {busy ? "ĐANG GHI…" : primary === "in" ? "CHẠM ĐỂ VÀO CA" : "CHẠM ĐỂ RA CA"}
         </p>
         {active.length === 0 && !data.settings.allowOffsite ? (
           <p className="mt-2 text-center text-sm text-clay">Chưa có điểm chấm công đang bật.</p>
         ) : null}
+        {result ? (
+          <p className={`mt-2 max-h-16 w-full overflow-y-auto rounded-lg px-3 py-1.5 text-xs leading-5 ${result.ok ? "bg-card text-ink" : "bg-clay text-night"}`}>
+            <span className="font-semibold">{result.ok ? (result.offsite ? "Đã ghi, ngoài điểm. " : "Đã ghi nhận. ") : "Ngoài vị trí cho phép. "}</span>
+            {result.ok
+              ? result.offsite
+                ? "Quản trị và người duyệt đã được báo."
+                : `Tại ${result.nearestName}, cách tâm ${formatMeters(result.distanceMeters)}.`
+              : result.message}
+            {result.ok && result.lateMinutes >= data.settings.lateMinutes ? ` Muộn ${result.lateMinutes} phút.` : ""}
+            {result.ok && vnWeekday(result.punchedAt) === 0 && result.overtimeStatus !== "pending" ? " Chủ nhật tính tăng ca, chờ duyệt khi ra ca." : ""}
+            {result.ok && result.overtimeStatus === "pending" ? ` Tăng ca ${minutesToHm(result.overtimeMinutes)}, chờ duyệt mới được tính.` : ""}
+          </p>
+        ) : null}
+        {error ? <p className="mt-2 max-h-16 w-full overflow-y-auto text-center text-xs text-clay">{error}</p> : null}
+        {geoFailed && pendingPhoto ? (
+          <button type="button" className={`${secondaryBtn} mt-2 h-10 w-full`} onClick={() => locateThenSubmit(geoFailed, pendingPhoto)}>
+            Thử lấy GPS lại
+          </button>
+        ) : null}
       </div>
 
-      <div className="mx-4 mt-6 grid grid-cols-2 gap-3 md:mx-8">
-        <div className="rounded-xl border border-line bg-card px-3.5 py-3">
+      <div className="mx-4 grid shrink-0 grid-cols-2 gap-2.5 md:mx-8">
+        <div className="rounded-xl border border-line bg-card px-3.5 py-2">
           <p className="text-xs text-muted">Giờ vào</p>
-          <p className="font-display text-3xl leading-tight font-bold tabular-nums text-ink">
+          <p className="font-display text-[1.75rem] leading-tight font-bold tabular-nums text-ink">
             {firstIn ? vnTime(firstIn.punchedAt) : "--:--"}
           </p>
           <p className={`text-xs font-semibold ${!firstIn ? "text-muted" : inLate ? "text-clay" : "text-ok"}`}>
             {!firstIn ? "Chưa vào ca" : inLate ? `Muộn ${firstIn.lateMinutes} phút` : "Đúng giờ"}
           </p>
         </div>
-        <div className="rounded-xl border border-line bg-card px-3.5 py-3">
+        <div className="rounded-xl border border-line bg-card px-3.5 py-2">
           <p className="text-xs text-muted">Đã làm hôm nay</p>
-          <p className="font-display text-3xl leading-tight font-bold tabular-nums text-ink">
+          <p className="font-display text-[1.75rem] leading-tight font-bold tabular-nums text-ink">
             {Math.floor(worked / 60)}h {String(worked % 60).padStart(2, "0")}
           </p>
           <p
@@ -405,10 +424,10 @@ export function PunchPanel({
         </div>
       </div>
 
-      <div className="mx-4 mt-3 flex items-center gap-4 rounded-xl bg-ice px-4 py-3.5 text-night md:mx-8">
+      <div className="mx-4 mt-2.5 flex shrink-0 items-center gap-4 rounded-xl bg-ice px-4 py-2.5 text-night md:mx-8">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium">Công tháng {monthNo}</p>
-          <p className="font-display text-3xl leading-tight font-bold tabular-nums">
+          <p className="font-display text-[1.75rem] leading-tight font-bold tabular-nums">
             {congText(cong)} / {standard || "–"}
           </p>
           <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-night/25">
@@ -422,48 +441,6 @@ export function PunchPanel({
         >
           Gửi đơn
         </button>
-      </div>
-
-      <div className="space-y-3 px-4 pt-4">
-        {result ? (
-          <section className={`rounded-md border p-4 ${result.ok ? "border-ice bg-card text-ink" : "border-transparent bg-clay text-card"}`}>
-            <p className="text-sm font-semibold">
-              {result.ok ? (result.offsite ? "Đã ghi, ngoài điểm" : "Đã ghi nhận") : "Ngoài vị trí cho phép"}
-            </p>
-            <p className="mt-1 text-base leading-6">
-              {result.ok
-                ? result.offsite
-                  ? "Lần này không nằm trong điểm cho phép. Quản trị và người duyệt đã được báo."
-                  : `Chấm công tại ${result.nearestName}, cách tâm ${formatMeters(result.distanceMeters)}.`
-                : result.message}
-              {result.ok && result.lateMinutes >= data.settings.lateMinutes
-                ? ` Muộn ${result.lateMinutes} phút, đã báo quản trị và người duyệt.`
-                : ""}
-              {result.ok && vnWeekday(result.punchedAt) === 0 && result.overtimeStatus !== "pending"
-                ? " Chủ Nhật làm thì cả buổi tính tăng ca, chờ duyệt khi ra ca."
-                : ""}
-              {result.ok && result.overtimeStatus === "pending"
-                ? ` Tăng ca ${minutesToHm(result.overtimeMinutes)}, chờ duyệt thì mới được tính.`
-                : ""}
-            </p>
-          </section>
-        ) : null}
-        {error ? <p className="text-sm text-clay">{error}</p> : null}
-        {geoFailed && pendingPhoto ? (
-          <button type="button" className={`${secondaryBtn} w-full`} onClick={() => locateThenSubmit(geoFailed, pendingPhoto)}>
-            Thử lấy GPS lại
-          </button>
-        ) : null}
-
-        {data.today.length > 0 ? (
-          <section className="space-y-2">
-            <h3 className="font-display text-2xl font-semibold">Hôm nay</h3>
-            {data.today.map((row) => (
-              <PunchLine key={row.id} row={row} settings={data.settings} />
-            ))}
-          </section>
-        ) : null}
-
       </div>
 
       {cameraFor ? (

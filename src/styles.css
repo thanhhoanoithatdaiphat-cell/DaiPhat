@@ -119,8 +119,8 @@
 .punch-float {
   position: relative;
   display: grid;
-  width: clamp(5.5rem, calc(100dvh - 33rem), 12.5rem);
-  height: clamp(5.5rem, calc(100dvh - 33rem), 12.5rem);
+  width: clamp(5.5rem, calc(100dvh - 37rem), 12.5rem);
+  height: clamp(5.5rem, calc(100dvh - 37rem), 12.5rem);
   place-items: center;
   border: 0;
   border-radius: 999px;

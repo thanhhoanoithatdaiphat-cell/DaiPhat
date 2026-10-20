@@ -315,8 +315,8 @@ export function PunchPanel({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col pb-3">
-      <section className="flex shrink-0 items-start justify-between gap-3 px-5 pt-[max(0.75rem,env(safe-area-inset-top))] md:px-8">
+    <div className="flex h-full min-h-0 flex-col gap-[clamp(0.5rem,1.7dvh,1.25rem)] pb-4">
+      <section className="flex shrink-0 items-start justify-between gap-3 px-5 pt-[max(1rem,env(safe-area-inset-top))] md:px-8">
         <div className="min-w-0">
           <p className="text-xs text-muted">{dateLine()}</p>
           <h1 className="font-display mt-0.5 truncate text-[1.6rem] leading-tight font-bold text-ink md:text-4xl">
@@ -328,7 +328,7 @@ export function PunchPanel({
         </span>
       </section>
 
-      <div className="mx-4 mt-3 flex shrink-0 items-center gap-3 rounded-xl border border-line bg-card px-3.5 py-2.5 md:mx-8">
+      <div className="mx-5 flex shrink-0 items-center gap-3 rounded-xl border border-line bg-card px-4 py-3 md:mx-8">
         <MapPin className="size-5 shrink-0 text-ice" strokeWidth={2} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-ink">
@@ -338,7 +338,7 @@ export function PunchPanel({
             {nearest
               ? nearest.dist <= nearest.radius
                 ? `Trong phạm vi chấm công · cách ${formatMeters(nearest.dist)}`
-                : `Ngoài phạm vi chấm công · cách ${formatMeters(nearest.dist)}`
+                : `Ngoài phạm vi · cách ${formatMeters(nearest.dist)}`
               : active.length === 0
                 ? "Chưa có điểm chấm công đang bật"
                 : geo.status === "denied"
@@ -351,7 +351,7 @@ export function PunchPanel({
         <span className={`shrink-0 text-xs font-semibold ${gpsLabel.cls}`}>{gpsLabel.text}</span>
       </div>
 
-      <div className="mt-2 shrink-0 text-center">
+      <div className="shrink-0 text-center">
         <p className="font-display text-[clamp(2.75rem,8dvh,4.5rem)] leading-none font-bold tabular-nums text-ink md:text-[6.5rem]">
           {clock.time.slice(0, 5)}
         </p>
@@ -360,7 +360,7 @@ export function PunchPanel({
         </p>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-3">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 py-3">
         <button
           type="button"
           disabled={busy || (!data.settings.allowOffsite && active.length === 0)}
@@ -374,7 +374,7 @@ export function PunchPanel({
             <img src="/punch-logo-dark.png" alt="" className="punch-logo" />
           </span>
         </button>
-        <p className="mt-4 text-center font-display text-xl font-bold tracking-wide text-ice md:text-2xl">
+        <p className="mt-[clamp(0.75rem,2.4dvh,1.25rem)] text-center font-display text-xl font-bold tracking-wide text-ice md:text-2xl">
           {busy ? "ĐANG GHI…" : primary === "in" ? "CHẠM ĐỂ VÀO CA" : "CHẠM ĐỂ RA CA"}
         </p>
         {active.length === 0 && !data.settings.allowOffsite ? (
@@ -401,8 +401,8 @@ export function PunchPanel({
         ) : null}
       </div>
 
-      <div className="mx-4 grid shrink-0 grid-cols-2 gap-2.5 md:mx-8">
-        <div className="rounded-xl border border-line bg-card px-3.5 py-2">
+      <div className="mx-5 grid shrink-0 grid-cols-2 gap-3 md:mx-8">
+        <div className="rounded-xl border border-line bg-card px-4 py-2.5">
           <p className="text-xs text-muted">Giờ vào</p>
           <p className="font-display text-[1.75rem] leading-tight font-bold tabular-nums text-ink">
             {firstIn ? vnTime(firstIn.punchedAt) : "--:--"}
@@ -411,7 +411,7 @@ export function PunchPanel({
             {!firstIn ? "Chưa vào ca" : inLate ? `Muộn ${firstIn.lateMinutes} phút` : "Đúng giờ"}
           </p>
         </div>
-        <div className="rounded-xl border border-line bg-card px-3.5 py-2">
+        <div className="rounded-xl border border-line bg-card px-4 py-2.5">
           <p className="text-xs text-muted">Đã làm hôm nay</p>
           <p className="font-display text-[1.75rem] leading-tight font-bold tabular-nums text-ink">
             {Math.floor(worked / 60)}h {String(worked % 60).padStart(2, "0")}
@@ -424,7 +424,7 @@ export function PunchPanel({
         </div>
       </div>
 
-      <div className="mx-4 mt-2.5 flex shrink-0 items-center gap-4 rounded-xl bg-ice px-4 py-2.5 text-night md:mx-8">
+      <div className="mx-5 flex shrink-0 items-center gap-4 rounded-xl bg-ice px-4 py-3 text-night md:mx-8">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium">Công tháng {monthNo}</p>
           <p className="font-display text-[1.75rem] leading-tight font-bold tabular-nums">

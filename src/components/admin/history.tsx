@@ -6,7 +6,7 @@ import { HISTORY_MAX_DAYS, type AuditEvent, type HistoryData } from "@/lib/atten
 import { buildCell, summarize, weekdayOf, type CellKind, type DayCell } from "@/lib/month-grid";
 import { formatMeters, minutesToHm, nextDateKey, vnDateKey, vnTime } from "@/lib/vn-time";
 import type { AdminCtx } from "./app";
-import { Card, Chip, PunchPhoto } from "./common";
+import { Card, Chip, PageHero, PunchPhoto } from "./common";
 
 type Tab = "day" | "punch" | "audit";
 type StatusFilter = "all" | "ok" | "late" | "partial" | "absent" | "leave" | "offsite" | "corrected" | "overtime";
@@ -298,11 +298,11 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
 
   const kpi = useMemo(() => {
     const cells = dayRows.map((r) => r.cell);
-    const s = summarize(cells);
+    const s = summarize(cells, { sunday: ctx.data.settings.sundayRate, holiday: ctx.data.settings.holidayRate });
     return {
       punches: punchRows.length,
       workDays: s.days,
-      cong: s.cong,
+      cong: s.congQuyDoi,
       late: s.late,
       absent: s.absent,
       partial: s.partial,
@@ -310,7 +310,7 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
       corrected: punchRows.filter((r) => r.status === "corrected").length,
       pending: (audit ?? []).filter((e) => e.status === "pending").length,
     };
-  }, [dayRows, punchRows, audit]);
+  }, [dayRows, punchRows, audit, ctx.data.settings.sundayRate, ctx.data.settings.holidayRate]);
 
   const total = tab === "day" ? shownDays.length : tab === "punch" ? shownPunches.length : shownAudit.length;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -370,26 +370,21 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="mr-auto">
-          <h1 className="font-display text-4xl font-semibold">Lịch sử chấm công</h1>
-          <p className="text-sm text-muted">Toàn bộ lượt chấm, ngày công và nhật ký duyệt của mọi nhân viên theo khoảng ngày.</p>
-        </div>
-      </div>
+      <PageHero title="Lịch sử chấm công" subtitle="Toàn bộ lượt chấm, ngày công và nhật ký duyệt của mọi nhân viên theo khoảng ngày." />
 
       <Card>
         <div className="flex flex-wrap items-center gap-3 p-4">
           <label className="flex items-center gap-2 text-sm">
             Từ
-            <input type="date" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} className="h-10 rounded-md border-[1.5px] border-ink bg-card px-2 text-sm" />
+            <input type="date" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} className="h-10 rounded-md border border-edge bg-card px-2 text-sm" />
           </label>
           <label className="flex items-center gap-2 text-sm">
             đến
-            <input type="date" value={to} min={from} onChange={(e) => e.target.value && setTo(e.target.value)} className="h-10 rounded-md border-[1.5px] border-ink bg-card px-2 text-sm" />
+            <input type="date" value={to} min={from} onChange={(e) => e.target.value && setTo(e.target.value)} className="h-10 rounded-md border border-edge bg-card px-2 text-sm" />
           </label>
           <div className="flex flex-wrap gap-1.5">
             {([["today", "Hôm nay"], ["7", "7 ngày"], ["30", "30 ngày"], ["month", "Tháng này"], ["prev", "Tháng trước"]] as const).map(([k, t]) => (
-              <button key={k} type="button" onClick={() => preset(k)} className="h-9 rounded-md border-[1.5px] border-ink bg-card px-3 text-sm font-semibold hover:bg-ice">
+              <button key={k} type="button" onClick={() => preset(k)} className="h-9 rounded-md border border-edge bg-card px-3 text-sm font-semibold hover:bg-ice">
                 {t}
               </button>
             ))}
@@ -418,29 +413,29 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex overflow-hidden rounded-md border-[1.5px] border-ink text-sm font-semibold" role="tablist" aria-label="Kiểu xem lịch sử">
+        <div className="flex overflow-hidden rounded-md border border-edge text-sm font-semibold" role="tablist" aria-label="Kiểu xem lịch sử">
           {([["day", "Theo ngày"], ["punch", "Từng lượt chấm"], ["audit", "Nhật ký duyệt"]] as const).map(([k, t]) => (
-            <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => switchTab(k)} className={`h-10 px-4 ${tab === k ? "bg-ink text-card" : "bg-card"}`}>
+            <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => switchTab(k)} className={`h-10 px-4 ${tab === k ? "bg-night text-ice" : "bg-card"}`}>
               {t}
             </button>
           ))}
         </div>
         <label className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm tên hoặc mã NV" className="h-10 w-48 rounded-md border-[1.5px] border-ink bg-card pr-3 pl-9 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ice" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm tên hoặc mã NV" className="h-10 w-48 rounded-md border border-edge bg-card pr-3 pl-9 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ice" />
         </label>
         {depts.length ? (
-          <select value={dept} onChange={(e) => setDept(e.target.value)} aria-label="Lọc theo phòng ban" className="h-10 rounded-md border-[1.5px] border-ink bg-card px-3 text-sm">
+          <select value={dept} onChange={(e) => setDept(e.target.value)} aria-label="Lọc theo phòng ban" className="h-10 rounded-md border border-edge bg-card px-3 text-sm">
             <option value="">Tất cả phòng ban</option>
             {depts.map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
         ) : null}
-        <select value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)} aria-label="Lọc theo trạng thái" className="h-10 rounded-md border-[1.5px] border-ink bg-card px-3 text-sm">
+        <select value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)} aria-label="Lọc theo trạng thái" className="h-10 rounded-md border border-edge bg-card px-3 text-sm">
           {STATUS_OPTIONS.filter(([k]) => tab === "day" || (tab === "punch" ? ["all", "late", "offsite", "corrected", "overtime"].includes(k) : ["all", "corrected", "overtime", "leave"].includes(k))).map(([k, t]) => (
             <option key={k} value={k}>{tab === "audit" && k === "corrected" ? "Đơn sửa công" : tab === "audit" && k === "overtime" ? "Tăng ca" : tab === "audit" && k === "leave" ? "Đơn nghỉ" : t}</option>
           ))}
         </select>
-        <button type="button" onClick={() => setAsc((v) => !v)} className="h-10 rounded-md border-[1.5px] border-ink bg-card px-3 text-sm font-semibold">
+        <button type="button" onClick={() => setAsc((v) => !v)} className="h-10 rounded-md border border-edge bg-card px-3 text-sm font-semibold">
           {asc ? "Cũ nhất trước ↑" : "Mới nhất trước ↓"}
         </button>
         <button type="button" disabled={!hist || total === 0} onClick={exportCsv} className="ml-auto flex h-10 items-center gap-2 rounded-md bg-ice px-4 text-sm font-semibold shadow-[0_3px_0_var(--color-ink)] disabled:opacity-40">
@@ -529,10 +524,10 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
             {total} dòng · trang {cur}/{pages} · {fmtDate(from)} → {fmtDate(to)}
           </span>
           <span className="flex gap-1">
-            <button type="button" aria-label="Trang trước" disabled={cur <= 1} onClick={() => setPage(cur - 1)} className="grid size-9 place-items-center rounded-md border-[1.5px] border-ink bg-card disabled:opacity-30">
+            <button type="button" aria-label="Trang trước" disabled={cur <= 1} onClick={() => setPage(cur - 1)} className="grid size-9 place-items-center rounded-md border border-edge bg-card disabled:opacity-30">
               <ChevronLeft className="size-5" />
             </button>
-            <button type="button" aria-label="Trang sau" disabled={cur >= pages} onClick={() => setPage(cur + 1)} className="grid size-9 place-items-center rounded-md border-[1.5px] border-ink bg-card disabled:opacity-30">
+            <button type="button" aria-label="Trang sau" disabled={cur >= pages} onClick={() => setPage(cur + 1)} className="grid size-9 place-items-center rounded-md border border-edge bg-card disabled:opacity-30">
               <ChevronRight className="size-5" />
             </button>
           </span>
@@ -549,7 +544,7 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
                 {[detailPerson.employeeCode, detailPerson.department].filter(Boolean).length ? ` · ${[detailPerson.employeeCode, detailPerson.department].filter(Boolean).join(" · ")}` : ""}
               </p>
             </div>
-            <button type="button" aria-label="Đóng" className="grid size-9 place-items-center rounded-md border-[1.5px] border-ink" onClick={() => setDetail(null)}>
+            <button type="button" aria-label="Đóng" className="grid size-9 place-items-center rounded-md border border-edge" onClick={() => setDetail(null)}>
               <X className="size-5" />
             </button>
           </div>
@@ -618,15 +613,15 @@ function Kpi({ label, value, tone = "text-ink", onClick }: { label: string; valu
     </>
   );
   return onClick ? (
-    <button type="button" onClick={onClick} className="rounded-lg border-[1.5px] border-ink bg-card p-3 text-left hover:bg-paper">{body}</button>
+    <button type="button" onClick={onClick} className="rounded-xl border border-edge bg-card p-3 text-left hover:bg-paper">{body}</button>
   ) : (
-    <div className="rounded-lg border-[1.5px] border-ink bg-card p-3">{body}</div>
+    <div className="rounded-xl border border-edge bg-card p-3">{body}</div>
   );
 }
 
 function Table({ head, empty, children }: { head: string[]; empty: boolean; children: React.ReactNode }) {
   return (
-    <div className="max-h-[65dvh] overflow-auto rounded-lg border-[1.5px] border-ink bg-card">
+    <div className="max-h-[65dvh] overflow-auto rounded-xl border border-edge bg-card">
       <table className="w-full min-w-[56rem] border-separate border-spacing-0 text-sm">
         <thead>
           <tr>

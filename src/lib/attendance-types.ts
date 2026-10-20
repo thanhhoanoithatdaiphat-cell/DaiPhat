@@ -13,6 +13,12 @@ export type Settings = {
   /** Làm từ số phút này thì tính 0.5 công. */
   halfDayMinutes: number;
   maxCorrections: number;
+  /** Số ngày công chuẩn của một tháng (mặc định 26). */
+  standardDays: number;
+  /** Hệ số công khi làm Chủ nhật (đã được duyệt tăng ca). */
+  sundayRate: number;
+  /** Hệ số công khi làm ngày lễ (đã được duyệt tăng ca). */
+  holidayRate: number;
   rankingsEnabled: boolean;
   requirePhoto: boolean;
   allowOffsite: boolean;

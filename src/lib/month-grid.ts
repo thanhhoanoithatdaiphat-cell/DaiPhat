@@ -13,6 +13,11 @@ export type MonthPunch = {
   hasPhoto: boolean;
 };
 
+export type DayType = "normal" | "sunday" | "holiday";
+
+export const DEFAULT_SUNDAY_RATE = 1.5;
+export const DEFAULT_HOLIDAY_RATE = 2;
+
 export type CellKind = "ok" | "late" | "partial" | "absent" | "off" | "future";
 
 export const DEFAULT_FULL_DAY_MINUTES = 420;
@@ -55,6 +60,8 @@ export type DayCell = {
   overtimeStatus: MonthPunch["overtimeStatus"];
   offsite: boolean;
   corrected: boolean;
+  /** Loại ngày: thường, Chủ nhật hay ngày lễ (lễ ưu tiên hơn Chủ nhật). */
+  dayType: DayType;
 };
 
 export function monthDayKeys(month: string): string[] {
@@ -87,7 +94,9 @@ export function buildCell(input: {
   const { dateKey, punches, todayKey, startedOn, lateThreshold, hm } = input;
   const full = input.fullDayMinutes ?? DEFAULT_FULL_DAY_MINUTES;
   const half = input.halfDayMinutes ?? DEFAULT_HALF_DAY_MINUTES;
+  const dayType: DayType = input.isHoliday ? "holiday" : weekdayOf(dateKey) === 0 ? "sunday" : "normal";
   const base = {
+    dayType,
     workedMinutes: 0,
     cong: null as number | null,
     firstIn: null,
@@ -103,7 +112,8 @@ export function buildCell(input: {
     if (weekdayOf(dateKey) === 0) return { ...base, kind: "off", label: "" };
     if (startedOn && dateKey < startedOn) return { ...base, kind: "off", label: "" };
     if (input.endedOn && dateKey > input.endedOn) return { ...base, kind: "off", label: "" };
-    if (input.isHoliday) return { ...base, kind: "off", label: "L" };
+    // Nghỉ lễ được hưởng nguyên lương: tính 1 công nếu rơi vào thứ 2–thứ 7 (Chủ nhật đã nằm ngoài công chuẩn).
+    if (input.isHoliday) return { ...base, cong: 1, kind: "off", label: "L" };
     if (input.hasApprovedLeave) return { ...base, kind: "off", label: input.leaveKind === "om" ? "Ố" : input.leaveKind === "thaisan" ? "T" : "P" };
     if (dateKey === todayKey) return { ...base, kind: "future", label: "" };
     return { ...base, cong: 0, kind: "absent", label: "V" };
@@ -113,6 +123,7 @@ export function buildCell(input: {
   const last = [...sorted].reverse().find((p) => p.type === "out") ?? null;
   const worked = workedMinutes(sorted);
   const cell = {
+    dayType,
     workedMinutes: worked,
     cong: congOf(worked, full, half) as number | null,
     firstIn: first?.at ?? null,
@@ -135,7 +146,16 @@ export function buildCell(input: {
 
 export type PersonSummary = {
   days: number;
+  /** Công ngày thường (không gồm Chủ nhật, lễ). */
   cong: number;
+  /** Công làm Chủ nhật đã được duyệt. */
+  sundayCong: number;
+  /** Công làm ngày lễ đã được duyệt. */
+  holidayCong: number;
+  /** Công quy đổi = công thường + CN × hệ số CN + lễ × hệ số lễ. */
+  congQuyDoi: number;
+  /** Số ngày làm Chủ nhật/lễ còn chờ duyệt tăng ca (chưa tính vào công). */
+  premiumPending: number;
   leave: number;
   holiday: number;
   late: number;
@@ -144,11 +164,25 @@ export type PersonSummary = {
   overtimeMinutes: number;
 };
 
-export function summarize(cells: DayCell[]): PersonSummary {
-  const s: PersonSummary = { days: 0, cong: 0, leave: 0, holiday: 0, late: 0, absent: 0, partial: 0, overtimeMinutes: 0 };
+export type PayRates = { sunday: number; holiday: number };
+
+export function summarize(cells: DayCell[], rates: PayRates = { sunday: DEFAULT_SUNDAY_RATE, holiday: DEFAULT_HOLIDAY_RATE }): PersonSummary {
+  const s: PersonSummary = {
+    days: 0, cong: 0, sundayCong: 0, holidayCong: 0, congQuyDoi: 0, premiumPending: 0,
+    leave: 0, holiday: 0, late: 0, absent: 0, partial: 0, overtimeMinutes: 0,
+  };
   for (const c of cells) {
-    if (c.cong != null && (c.kind === "ok" || c.kind === "late")) s.cong += c.cong;
-    if (c.kind === "off" && c.label === "L") s.holiday += 1;
+    if (c.cong != null && (c.kind === "ok" || c.kind === "late")) {
+      if (c.dayType === "normal") s.cong += c.cong;
+      else if (c.overtimeStatus === "approved") {
+        if (c.dayType === "holiday") s.holidayCong += c.cong;
+        else s.sundayCong += c.cong;
+      } else s.premiumPending += 1;
+    }
+    if (c.kind === "off" && c.label === "L") {
+      s.holiday += 1;
+      if (c.cong != null) s.cong += c.cong;
+    }
     if (c.kind === "off" && (c.label === "P" || c.label === "Ố" || c.label === "T")) s.leave += 1;
     if (c.kind === "ok" || c.kind === "late") s.days += 1;
     if (c.kind === "late") s.late += 1;
@@ -156,5 +190,6 @@ export function summarize(cells: DayCell[]): PersonSummary {
     if (c.kind === "partial") s.partial += 1;
     if (c.overtimeStatus === "approved") s.overtimeMinutes += c.overtimeMinutes;
   }
+  s.congQuyDoi = Math.round((s.cong + s.sundayCong * rates.sunday + s.holidayCong * rates.holiday) * 100) / 100;
   return s;
 }

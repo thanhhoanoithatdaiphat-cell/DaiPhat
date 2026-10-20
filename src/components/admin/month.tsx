@@ -6,7 +6,7 @@ import type { MonthGrid } from "@/lib/attendance-types";
 import { buildCell, monthDayKeys, summarize, weekdayOf, type CellKind, type DayCell } from "@/lib/month-grid";
 import { formatMeters, formatMonthLabel, formatVnDay, minutesToHm, shiftMonth, vnDateKey, vnMonthKey, vnTime } from "@/lib/vn-time";
 import type { AdminCtx } from "./app";
-import { Chip, PunchPhoto } from "./common";
+import { Chip, PageHero, PunchPhoto } from "./common";
 
 const WEEKDAY = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
 
@@ -64,6 +64,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
   }, []);
 
   const days = useMemo(() => monthDayKeys(month), [month]);
+  const rates = useMemo(() => ({ sunday: data.settings.sundayRate, holiday: data.settings.holidayRate }), [data.settings.sundayRate, data.settings.holidayRate]);
   const all = useMemo(() => {
     if (!grid) return [];
     return grid.people.map((p) => {
@@ -83,13 +84,13 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
           hm: vnTime,
         }),
       );
-      return { person: p, cells, sum: summarize(cells) };
+      return { person: p, cells, sum: summarize(cells, rates) };
     });
-  }, [grid, days, data.settings.lateMinutes, data.settings.fullDayMinutes, data.settings.halfDayMinutes]);
+  }, [grid, days, rates, data.settings.lateMinutes, data.settings.fullDayMinutes, data.settings.halfDayMinutes]);
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return all
-      .filter(({ person: p, sum }) => p.isActive !== false || sum.cong > 0)
+      .filter(({ person: p, sum }) => p.isActive !== false || sum.congQuyDoi > 0)
       .filter(({ person: p }) => !q || p.fullName.toLowerCase().includes(q) || (p.employeeCode ?? "").toLowerCase().includes(q))
       .filter(({ person: p }) => !dept || (p.department ?? "") === dept);
   }, [all, query, dept]);
@@ -103,7 +104,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
       data.overtimePending.filter((o) => vnDateKey(o.punchedAt).startsWith(month)).length;
     return { partial, pendingReq };
   }, [all, corrections, leaves, data.overtimePending, month]);
-  const totalCong = rows.reduce((n, r) => n + r.sum.cong, 0);
+  const totalCong = rows.reduce((n, r) => n + r.sum.congQuyDoi, 0);
 
   async function download() {
     setBusy(true);
@@ -143,35 +144,42 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="mr-auto font-display text-4xl font-semibold">Bảng công</h1>
-        <div className="flex items-center gap-1">
-          <button type="button" aria-label="Tháng trước" className="grid size-10 place-items-center rounded-md border-[1.5px] border-ink bg-card" onClick={() => setMonth((m) => shiftMonth(m, -1))}>
-            <ChevronLeft className="size-5" />
-          </button>
-          <p className="min-w-36 text-center font-display text-2xl font-semibold capitalize">{formatMonthLabel(month)}</p>
-          <button type="button" aria-label="Tháng sau" className="grid size-10 place-items-center rounded-md border-[1.5px] border-ink bg-card" onClick={() => setMonth((m) => shiftMonth(m, 1))}>
-            <ChevronRight className="size-5" />
-          </button>
-        </div>
-      </div>
+      <PageHero
+        title="Bảng công"
+        subtitle={
+          grid
+            ? `${rows.length} nhân viên · tổng ${fmtCong(totalCong)} công quy đổi · công chuẩn ${data.settings.standardDays} (trừ Chủ nhật) · Chủ nhật ×${data.settings.sundayRate} · lễ ×${data.settings.holidayRate}`
+            : "Đang tải…"
+        }
+        actions={
+          <div className="flex items-center gap-1">
+            <button type="button" aria-label="Tháng trước" className="grid size-10 place-items-center rounded-lg bg-white/10 hover:bg-white/20" onClick={() => setMonth((m) => shiftMonth(m, -1))}>
+              <ChevronLeft className="size-5" />
+            </button>
+            <p className="min-w-36 text-center font-display text-2xl font-bold capitalize">{formatMonthLabel(month)}</p>
+            <button type="button" aria-label="Tháng sau" className="grid size-10 place-items-center rounded-lg bg-white/10 hover:bg-white/20" onClick={() => setMonth((m) => shiftMonth(m, 1))}>
+              <ChevronRight className="size-5" />
+            </button>
+          </div>
+        }
+      />
 
       <div className="flex flex-wrap items-center gap-3">
         <label className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm tên hoặc mã NV" className="h-10 w-44 rounded-md border-[1.5px] border-ink bg-card pr-3 pl-9 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ice" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm tên hoặc mã NV" className="h-10 w-44 rounded-md border border-edge bg-card pr-3 pl-9 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ice" />
         </label>
         {depts.length ? (
-          <select value={dept} onChange={(e) => setDept(e.target.value)} aria-label="Lọc theo phòng ban" className="h-10 rounded-md border-[1.5px] border-ink bg-card px-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ice">
+          <select value={dept} onChange={(e) => setDept(e.target.value)} aria-label="Lọc theo phòng ban" className="h-10 rounded-md border border-edge bg-card px-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ice">
             <option value="">Tất cả phòng ban</option>
             {depts.map((d) => (
               <option key={d} value={d}>{d}</option>
             ))}
           </select>
         ) : null}
-        <div className="flex overflow-hidden rounded-md border-[1.5px] border-ink text-sm font-semibold" role="group" aria-label="Kiểu hiển thị ô">
+        <div className="flex overflow-hidden rounded-md border border-edge text-sm font-semibold" role="group" aria-label="Kiểu hiển thị ô">
           {(["cong", "gio"] as const).map((k) => (
-            <button key={k} type="button" aria-pressed={show === k} onClick={() => setShow(k)} className={`h-9 px-3 ${show === k ? "bg-ink text-card" : "bg-card"}`}>
+            <button key={k} type="button" aria-pressed={show === k} onClick={() => setShow(k)} className={`h-9 px-3 ${show === k ? "bg-night text-ice" : "bg-card"}`}>
               {k === "cong" ? "Công" : "Giờ vào"}
             </button>
           ))}
@@ -196,13 +204,13 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
               type="button"
               disabled={busy || !canLock}
               title={canLock ? "" : "Chỉ chốt được tháng đã kết thúc"}
-              className="flex h-10 items-center gap-2 rounded-md border-[1.5px] border-ink bg-card px-4 text-sm font-semibold disabled:opacity-40"
+              className="flex h-10 items-center gap-2 rounded-md border border-edge bg-card px-4 text-sm font-semibold disabled:opacity-40"
               onClick={() => void toggleLock(true)}
             >
               <Lock className="size-4" /> Chốt công
             </button>
           ) : null}
-          <button type="button" disabled={busy} className="flex h-10 items-center gap-2 rounded-md bg-ice px-4 text-sm font-semibold shadow-[0_3px_0_var(--color-ink)]" onClick={() => void download()}>
+          <button type="button" disabled={busy} className="flex h-10 items-center gap-2 rounded-lg bg-ice px-4 text-sm font-bold text-night" onClick={() => void download()}>
             <Download className="size-4" /> Tải CSV
           </button>
         </div>
@@ -223,17 +231,12 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
           ) : null}
         </div>
       ) : null}
-      {grid ? (
-        <p className="text-sm text-muted">
-          {rows.length} nhân viên · tổng <span className="font-semibold tabular-nums text-ink">{fmtCong(totalCong)}</span> công
-        </p>
-      ) : null}
       <Legend full={data.settings.fullDayMinutes} half={data.settings.halfDayMinutes} />
 
       {!grid ? (
         <p className="py-10 text-sm text-muted">Đang tải bảng công…</p>
       ) : (
-        <div className="max-h-[70dvh] overflow-auto rounded-lg border-[1.5px] border-ink bg-card">
+        <div className="max-h-[70dvh] overflow-auto rounded-xl border border-edge bg-card">
           <table className="border-separate border-spacing-0 text-sm">
             <thead>
               <tr>
@@ -263,7 +266,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
                       </span>
                     </button>
                   </th>
-                  <Num v={sum.cong} strong />
+                  <Num v={sum.congQuyDoi} strong />
                   <Num v={sum.late} warn />
                   <Num v={sum.absent} bad />
                   <Num v={sum.partial} bad />
@@ -298,7 +301,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
               <p className="font-display text-3xl font-semibold">{selPerson.fullName}</p>
               <p className="text-sm text-muted">{formatVnDay(sel.dateKey)}</p>
             </div>
-            <button type="button" aria-label="Đóng" className="grid size-9 place-items-center rounded-md border-[1.5px] border-ink" onClick={() => setSel(null)}>
+            <button type="button" aria-label="Đóng" className="grid size-9 place-items-center rounded-md border border-edge" onClick={() => setSel(null)}>
               <X className="size-5" />
             </button>
           </div>
@@ -334,6 +337,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
           person={grid.people.find((p) => p.userId === personId)}
           days={days}
           cells={rows.find((r) => r.person.userId === personId)?.cells ?? []}
+          rates={rates}
           onClose={() => setPersonId(null)}
           onPickDay={(dateKey) => {
             setSel({ userId: personId, dateKey });
@@ -349,12 +353,14 @@ function PersonDetail({
   person,
   days,
   cells,
+  rates,
   onClose,
   onPickDay,
 }: {
   person: MonthGrid["people"][number] | undefined;
   days: string[];
   cells: DayCell[];
+  rates: { sunday: number; holiday: number };
   onClose: () => void;
   onPickDay: (dateKey: string) => void;
 }) {
@@ -368,7 +374,7 @@ function PersonDetail({
   const absentDays = cells
     .map((c, i) => ({ c, d: days[i] }))
     .filter((x) => x.c.kind === "absent");
-  const sum = summarize(cells);
+  const sum = summarize(cells, rates);
   return (
     <aside className="fixed inset-0 z-40 flex items-end justify-center bg-ink/40 sm:items-center">
       <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-card p-5 sm:rounded-2xl">
@@ -377,17 +383,25 @@ function PersonDetail({
             <p className="font-display text-3xl font-bold">{person.fullName}</p>
             <p className="text-sm text-muted">{[person.employeeCode, person.department].filter(Boolean).join(" · ") || "Nhân viên"}</p>
           </div>
-          <button type="button" aria-label="Đóng" className="grid size-9 place-items-center rounded-md border-[1.5px] border-ink" onClick={onClose}>
+          <button type="button" aria-label="Đóng" className="grid size-9 place-items-center rounded-md border border-edge" onClick={onClose}>
             <X className="size-5" />
           </button>
         </div>
         <div className="mt-4 grid grid-cols-5 gap-2 text-center">
-          <Stat label="Công" value={fmtCong(sum.cong)} />
+          <Stat label="Công quy đổi" value={fmtCong(sum.congQuyDoi)} />
           <Stat label="Muộn" value={String(sum.late)} />
           <Stat label="Vắng" value={String(sum.absent)} />
           <Stat label="Nghỉ" value={String(sum.leave + sum.holiday)} />
           <Stat label="Tăng ca" value={sum.overtimeMinutes ? minutesToHm(sum.overtimeMinutes) : "–"} />
         </div>
+        {sum.sundayCong || sum.holidayCong || sum.premiumPending ? (
+          <p className="mt-3 rounded-md bg-sand px-3 py-2 text-xs">
+            Công thường {fmtCong(sum.cong)}
+            {sum.sundayCong ? ` · Chủ nhật ${fmtCong(sum.sundayCong)} ×${rates.sunday}` : ""}
+            {sum.holidayCong ? ` · lễ ${fmtCong(sum.holidayCong)} ×${rates.holiday}` : ""}
+            {sum.premiumPending ? ` · ${sum.premiumPending} ngày Chủ nhật/lễ chờ duyệt tăng ca, chưa tính` : ""}
+          </p>
+        ) : null}
         <Section title={`Ngày đi muộn (${lateDays.length})`}>
           {lateDays.length === 0 ? <Empty /> : lateDays.map(({ c, d }) => (
             <DayLine key={d} date={d} text={`Muộn ${c.lateMinutes} phút · vào ${c.firstIn ? vnTime(c.firstIn) : "?"}`} onClick={() => onPickDay(d)} />
@@ -487,7 +501,8 @@ function Legend({ full, half }: { full: number; half: number }) {
       <li className="flex items-center gap-1.5">
         <span className="h-0.5 w-4 bg-ink" /> Có tăng ca đã duyệt
       </li>
-      <li>V vắng · ! thiếu giờ ra · P phép · Ố ốm · T thai sản · L lễ</li>
+      <li>V vắng · ! thiếu giờ ra · P phép · Ố ốm · T thai sản · L lễ (nghỉ lễ ngày thường vẫn tính 1 công)</li>
+      <li>Làm Chủ nhật/lễ chỉ tính công khi tăng ca được duyệt, rồi nhân hệ số</li>
       <li>
         1 công từ {minutesToHm(full)} làm · 0.5 công từ {minutesToHm(half)}
       </li>

@@ -5,7 +5,7 @@ import { InviteCodeCard } from "@/components/invite-card";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
 import type { PersonRow, Role } from "@/lib/attendance-types";
 import type { AdminCtx } from "./app";
-import { Card, Chip } from "./common";
+import { Card, Chip, PageHero } from "./common";
 
 const ROLE_LABEL: Record<Role, string> = { employee: "Nhân viên", approver: "Người duyệt", admin: "Quản trị" };
 
@@ -51,17 +51,12 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="font-display text-4xl font-semibold">Nhân viên</h1>
-          <p className="text-sm text-muted">
-            {activeCount} đang làm việc · {people.length - activeCount} đã nghỉ
-            {missingInfo ? ` · ${missingInfo} người chưa đủ mã NV hoặc phòng ban` : ""}
-          </p>
-        </div>
-      </div>
+      <PageHero
+        title="Nhân viên"
+        subtitle={`${activeCount} đang làm việc · ${people.length - activeCount} đã nghỉ${missingInfo ? ` · ${missingInfo} người chưa đủ mã NV hoặc phòng ban` : ""}`}
+      />
 
-      <div className="grid items-start gap-4 xl:grid-cols-[1fr_20rem]">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <label className="relative">
@@ -71,11 +66,11 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Tên, mã NV, số điện thoại"
                 aria-label="Tìm nhân viên"
-                className="h-10 w-60 rounded-md border-[1.5px] border-ink bg-card pr-3 pl-9 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ice"
+                className="h-10 w-60 rounded-md border border-edge bg-card pr-3 pl-9 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ice"
               />
             </label>
             {depts.length ? (
-              <select value={dept} onChange={(e) => setDept(e.target.value)} aria-label="Lọc phòng ban" className="h-10 rounded-md border-[1.5px] border-ink bg-card px-3 text-sm">
+              <select value={dept} onChange={(e) => setDept(e.target.value)} aria-label="Lọc phòng ban" className="h-10 rounded-md border border-edge bg-card px-3 text-sm">
                 <option value="">Tất cả phòng ban</option>
                 {depts.map((d) => (
                   <option key={d} value={d}>
@@ -84,7 +79,7 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
                 ))}
               </select>
             ) : null}
-            <div className="flex overflow-hidden rounded-md border-[1.5px] border-ink text-sm font-semibold" role="group" aria-label="Trạng thái">
+            <div className="flex overflow-hidden rounded-md border border-edge text-sm font-semibold" role="group" aria-label="Trạng thái">
               {(
                 [
                   ["active", "Đang làm"],
@@ -163,7 +158,7 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
         <aside className="fixed inset-y-0 right-0 z-30 w-full overflow-y-auto border-l-2 border-ink bg-paper p-5 shadow-2xl sm:w-[26rem]" aria-label="Hồ sơ nhân viên">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-display text-3xl font-semibold">Hồ sơ</h2>
-            <button type="button" aria-label="Đóng" className="grid size-9 place-items-center rounded-md border-[1.5px] border-ink bg-card" onClick={() => setOpenId(null)}>
+            <button type="button" aria-label="Đóng" className="grid size-9 place-items-center rounded-md border border-edge bg-card" onClick={() => setOpenId(null)}>
               <X className="size-5" />
             </button>
           </div>

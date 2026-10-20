@@ -29,16 +29,16 @@ export function InviteCodeCard() {
   }
 
   return (
-    <section className="space-y-3 rounded-lg border-[1.5px] border-ink bg-card p-4">
+    <section className="space-y-3 rounded-xl border border-edge bg-card p-4">
       <h2 className="font-display text-2xl font-semibold">Mã mời nhân viên</h2>
       <p className="text-sm text-muted">Gửi mã này cho nhân viên mới. Họ nhập mã khi tạo tài khoản. Lộ mã thì tạo mã mới.</p>
       <div className="flex items-center gap-3">
-        <p className="font-display text-5xl leading-none font-semibold tracking-widest">{code || "…"}</p>
+        <p className="font-display text-4xl leading-none font-bold tracking-wider whitespace-nowrap">{code || "…"}</p>
         <button
           type="button"
           disabled={!code}
           aria-label="Sao chép mã"
-          className="grid size-10 place-items-center rounded-md border-[1.5px] border-ink"
+          className="grid size-10 place-items-center rounded-md border border-edge"
           onClick={() => {
             void navigator.clipboard?.writeText(code).then(() => {
               setCopied(true);

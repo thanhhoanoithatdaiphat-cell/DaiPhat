@@ -91,6 +91,8 @@ export function Workspace({ user }: { user: AppUser }) {
                 canReview={Boolean(canReview)}
                 maxCorrections={data.settings.maxCorrections}
                 userId={data.profile.userId}
+                workStart={data.settings.workStart}
+                workEnd={data.settings.workEnd}
                 onChanged={load}
               />
             </div>

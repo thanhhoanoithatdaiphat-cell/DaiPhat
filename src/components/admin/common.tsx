@@ -42,10 +42,10 @@ export function Chip({ tone, children }: { tone: "ink" | "ok" | "late" | "clay" 
 
 export function Card({ title, action, children, className = "" }: { title?: string; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={`rounded-lg border-[1.5px] border-ink bg-card ${className}`}>
+    <section className={`rounded-xl border border-line bg-card ${className}`}>
       {title ? (
         <header className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
-          <h2 className="font-display text-2xl font-semibold">{title}</h2>
+          <h2 className="font-display text-xl font-bold">{title}</h2>
           {action}
         </header>
       ) : null}
@@ -70,4 +70,30 @@ export function PunchPhoto({ id }: { id: number }) {
   }
   if (!photo) return <p className="text-sm text-muted">Không có ảnh</p>;
   return <img src={photo} alt="Ảnh chấm công" className="max-h-72 w-full rounded-md object-cover" />;
+}
+
+/** Banner tối đầu mỗi trang quản trị: tiêu đề, dòng phụ, nút thao tác và (tuỳ chọn) hàng số liệu. */
+export function PageHero({
+  title,
+  subtitle,
+  actions,
+  children,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  actions?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl bg-night p-5 text-[#fff3d6] lg:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="font-display text-3xl leading-tight font-bold lg:text-4xl">{title}</h1>
+          {subtitle ? <p className="mt-0.5 text-xs text-ice">{subtitle}</p> : null}
+        </div>
+        {actions ? <div className="flex flex-wrap items-center gap-3">{actions}</div> : null}
+      </div>
+      {children ? <div className="mt-4">{children}</div> : null}
+    </section>
+  );
 }

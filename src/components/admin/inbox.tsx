@@ -5,7 +5,7 @@ import { reviewCorrection, reviewLeave, reviewOvertime } from "@/lib/attendance.
 import type { CorrectionRow, LeaveRow, PunchRow } from "@/lib/attendance-types";
 import { formatMeters, minutesToHm, vnDateKey, vnTime } from "@/lib/vn-time";
 import type { AdminCtx } from "./app";
-import { ago, Card, Chip, KIND_LABEL, LEAVE_LABEL, PunchPhoto, shortDate } from "./common";
+import { ago, Card, Chip, KIND_LABEL, LEAVE_LABEL, PageHero, PunchPhoto, shortDate } from "./common";
 
 type Item =
   | { key: string; kind: "correction"; id: number; userId: string; name: string; at: string; row: CorrectionRow }
@@ -168,10 +168,10 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 className="font-display text-4xl font-semibold">Cần duyệt</h1>
-        <p className="hidden text-xs text-muted lg:block">Phím tắt: J/K chọn dòng · X đánh dấu · A duyệt · R từ chối</p>
-      </div>
+      <PageHero
+        title="Cần duyệt"
+        subtitle={`${pending.length} mục đang chờ · Phím tắt: J/K chọn dòng · X đánh dấu · A duyệt · R từ chối`}
+      />
 
       <div className="flex flex-wrap items-center gap-2" role="tablist">
         {tabs.map((t) => (
@@ -186,7 +186,7 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
               setChecked(new Set());
               setRejecting(false);
             }}
-            className={`rounded-md border-[1.5px] border-ink px-3 py-1.5 text-sm font-semibold ${tab === t.id ? "bg-ink text-card" : "bg-card"}`}
+            className={`rounded-md border border-edge px-3 py-1.5 text-sm font-semibold ${tab === t.id ? "bg-night text-ice" : "bg-card"}`}
           >
             {t.label}
             {t.count ? <span className={`ml-2 ${tab === t.id ? "text-ice" : "text-clay"}`}>{t.count}</span> : null}
@@ -202,7 +202,7 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
             }}
             placeholder="Tìm tên nhân viên"
             aria-label="Tìm tên nhân viên"
-            className="h-10 w-48 rounded-md border-[1.5px] border-ink bg-card pr-3 pl-9 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ice"
+            className="h-10 w-48 rounded-md border border-edge bg-card pr-3 pl-9 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ice"
           />
         </label>
       </div>
@@ -310,7 +310,7 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
 
           <div className="space-y-3 lg:sticky lg:top-4">
             {picked.length > 1 ? (
-              <div className="flex flex-wrap items-center gap-2 rounded-lg border-[1.5px] border-ink bg-ink p-3 text-card">
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge bg-ink p-3 text-card">
                 <span className="mr-auto text-sm font-semibold">{picked.length} mục đã chọn</span>
                 <button type="button" disabled={busy} className="rounded-md bg-ice px-4 py-2 text-sm font-semibold text-ink" onClick={() => void decide(picked, "approved", "")}>
                   Duyệt {picked.length} mục
@@ -337,7 +337,7 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
                           if (e.key === "Escape") setRejecting(false);
                         }}
                         placeholder="Lý do từ chối (không bắt buộc), Enter để xác nhận"
-                        className="h-11 w-full rounded-md border-[1.5px] border-ink bg-card px-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ice"
+                        className="h-11 w-full rounded-md border border-edge bg-card px-3 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ice"
                       />
                       <div className="flex gap-2">
                         <button type="button" disabled={busy} className="btn-3d btn-3d-secondary flex-1" onClick={() => void decide(targets(), "rejected", note)}>

@@ -1,5 +1,5 @@
 export const fieldClass =
-  "h-12 w-full rounded-md border-[1.5px] border-ink bg-card px-4 text-base text-ink outline-none focus-visible:ring-4 focus-visible:ring-ice";
+  "h-12 w-full rounded-md border border-edge bg-card px-4 text-base text-ink outline-none focus-visible:ring-4 focus-visible:ring-ice";
 
 export const primaryBtn = "btn-3d btn-3d-primary disabled:cursor-not-allowed";
 

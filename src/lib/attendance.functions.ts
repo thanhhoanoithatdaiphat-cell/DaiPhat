@@ -28,7 +28,6 @@ import {
   congOf,
   monthDayKeys,
   summarize,
-  weekdayOf,
   workedMinutes as sumWorked,
   type MonthPunch,
 } from "@/lib/month-grid";
@@ -39,12 +38,15 @@ const PHOTO_MAX = 180_000;
 const OT_ALERT_MINUTES = 60;
 
 const DEFAULT_SETTINGS: Settings = {
-  workStart: "08:00",
+  workStart: "07:30",
   workEnd: "17:30",
   lateMinutes: 5,
   fullDayMinutes: 420,
   halfDayMinutes: 240,
   maxCorrections: 4,
+  standardDays: 26,
+  sundayRate: 1.5,
+  holidayRate: 2,
   rankingsEnabled: false,
   requirePhoto: true,
   allowOffsite: false,
@@ -74,6 +76,20 @@ function clampNum(value: unknown, min: number, max: number, fallback: number): n
   return Math.min(max, Math.max(min, Math.round(n)));
 }
 
+function clampRate(value: unknown, fallback: number): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.round(Math.min(5, Math.max(1, n)) * 100) / 100;
+}
+
+async function isHolidayDay(companyId: string, dayKey: string): Promise<boolean> {
+  const sql = await getSql();
+  const rows = await sql<{ n: number }>`
+    select count(*)::int as n from holidays where company_id = ${companyId} and date = ${dayKey}::date
+  `;
+  return Number(rows[0]?.n ?? 0) > 0;
+}
+
 function readSettings(raw: unknown): Settings {
   let obj: Record<string, unknown> = {};
   if (typeof raw === "string") {
@@ -91,6 +107,9 @@ function readSettings(raw: unknown): Settings {
     lateMinutes: clampNum(obj.lateMinutes, 0, 180, DEFAULT_SETTINGS.lateMinutes),
     ...readDayThresholds(obj),
     maxCorrections: clampNum(obj.maxCorrections, 0, 20, DEFAULT_SETTINGS.maxCorrections),
+    standardDays: clampNum(obj.standardDays, 20, 31, DEFAULT_SETTINGS.standardDays),
+    sundayRate: clampRate(obj.sundayRate, DEFAULT_SETTINGS.sundayRate),
+    holidayRate: clampRate(obj.holidayRate, DEFAULT_SETTINGS.holidayRate),
     rankingsEnabled: obj.rankingsEnabled === true,
     requirePhoto: obj.requirePhoto !== false,
     allowOffsite: obj.allowOffsite === true,
@@ -502,11 +521,11 @@ export const getWorkspace = createServerFn({ method: "POST" })
 
 /** Công tích lũy của chính người dùng trong tháng hiện tại (cùng quy tắc với bảng công). */
 export const getMySummary = createServerFn({ method: "POST" })
+  .validator((month: string) => assertMonth(month))
   .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<MySummary> => {
+  .handler(async ({ context, data: month }): Promise<MySummary> => {
     const profile = await requireProfile(context.userId);
     const sql = await getSql();
-    const month = vnMonthKey();
     const todayKey = vnDateKey();
     const { start, end } = monthRange(month);
     const companies = await sql<{ settings: unknown }>`
@@ -579,8 +598,8 @@ export const getMySummary = createServerFn({ method: "POST" })
         hm: (iso) => minutesToHm(vnMinutes(iso)),
       }),
     );
-    const standardDays = monthDayKeys(month).filter((d) => weekdayOf(d) !== 0 && !holidays.has(d)).length;
-    return { month, cong: summarize(cells).cong, standardDays };
+    const sum = summarize(cells, { sunday: settings.sundayRate, holiday: settings.holidayRate });
+    return { month, cong: sum.cong + sum.sundayCong * settings.sundayRate + sum.holidayCong * settings.holidayRate, standardDays: settings.standardDays };
   });
 
 export const listHistory = createServerFn({ method: "POST" })
@@ -723,7 +742,8 @@ export const punch = createServerFn({ method: "POST" })
     }
     const punchedAt = new Date().toISOString();
     const clock = vnMinutes(punchedAt);
-    const sunday = vnWeekday(punchedAt) === 0;
+    // Chủ nhật hoặc ngày lễ: cả buổi làm tính tăng ca (chờ duyệt), không tính đi muộn
+    const sunday = vnWeekday(punchedAt) === 0 || (await isHolidayDay(profile.companyId, vnDateKey(punchedAt)));
     let lateMinutes = 0;
     let overtimeMinutes = 0;
     let overtimeStatus: OvertimeStatus = "none";
@@ -987,7 +1007,7 @@ export const reviewCorrection = createServerFn({ method: "POST" })
       let overtimeMinutes = 0;
       let overtimeStatus: OvertimeStatus = "none";
       const clock = hmToMinutes(row.requested_time);
-      const sunday = vnWeekday(day + "T00:00:00+07:00") === 0;
+      const sunday = vnWeekday(day + "T00:00:00+07:00") === 0 || (await isHolidayDay(profile.companyId, day));
       if (!sunday && row.punch_type === "in") {
         // Chỉ tính muộn nếu đây sẽ là lần vào đầu tiên (hoặc sớm nhất)
         const existing = await sql<{ punched_at: unknown }>`
@@ -1132,6 +1152,11 @@ export const exportTimesheet = createServerFn({ method: "POST" })
         and a.status in ('valid', 'corrected')
       order by p.full_name asc, a.punched_at asc
     `;
+    const holidayRows = await sql<{ date: unknown }>`
+      select date from holidays where company_id = ${profile.companyId}
+        and date >= ${start}::date and date < ${end}::date
+    `;
+    const holidaySet = new Set(holidayRows.map((r) => dateOnly(r.date)));
     const days = new Map<
       string,
       {
@@ -1178,6 +1203,9 @@ export const exportTimesheet = createServerFn({ method: "POST" })
       "Giờ ra",
       "Số giờ",
       "Công",
+      "Loại ngày",
+      "Hệ số",
+      "Công quy đổi",
       "Đi muộn (phút)",
       "Tăng ca",
       "Tăng ca được tính",
@@ -1213,6 +1241,14 @@ export const exportTimesheet = createServerFn({ method: "POST" })
         lastOut && vnWeekday(bucket.day) !== 0 && isEarlyOut(lastOut.at, settings.workEnd) ? "Có" : "Không";
       const offsite = bucket.punches.some((punch) => punch.offsite) ? "Có" : "Không";
       const missingOut = firstIn && !lastOut ? "Có" : "Không";
+      const openToday = bucket.day === vnDateKey() && firstIn && !lastOut;
+      const congDay = openToday ? null : congOf(sumWorked(bucket.punches), settings.fullDayMinutes, settings.halfDayMinutes);
+      const isHoliday = holidaySet.has(bucket.day);
+      const isSunday = !isHoliday && vnWeekday(bucket.day) === 0;
+      const rate = isHoliday ? settings.holidayRate : isSunday ? settings.sundayRate : 1;
+      // Chủ nhật/lễ chỉ được nhân hệ số khi tăng ca đã duyệt; chưa duyệt thì chưa tính.
+      const converted =
+        congDay == null ? "" : isHoliday || isSunday ? (overtimeStatus === "approved" ? String(Math.round(congDay * rate * 100) / 100) : "0") : String(congDay);
       lines.push(
         [
           bucket.name,
@@ -1224,7 +1260,10 @@ export const exportTimesheet = createServerFn({ method: "POST" })
           firstIn ? vnTimeExport(firstIn.at) : "",
           lastOut ? vnTimeExport(lastOut.at) : "",
           hours,
-          bucket.day === vnDateKey() && firstIn && !lastOut ? "" : String(congOf(sumWorked(bucket.punches), settings.fullDayMinutes, settings.halfDayMinutes)),
+          congDay == null ? "" : String(congDay),
+          isHoliday ? "Lễ" : isSunday ? "Chủ nhật" : "Thường",
+          rate === 1 ? "" : String(rate).replace(".", ","),
+          converted,
           firstIn && lateMinutes >= settings.lateMinutes ? String(lateMinutes) : "",
           lastOut && overtimeMinutes > 0 ? minutesToHm(overtimeMinutes) : "",
           counted,

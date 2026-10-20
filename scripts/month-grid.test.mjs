@@ -44,7 +44,10 @@ test("summarize chỉ tính tăng ca đã duyệt", () => {
   const a = cell("2026-10-12", [p("in", "2026-10-12T01:00:00Z"), p("out", "2026-10-12T12:00:00Z", { overtimeMinutes: 90, overtimeStatus: "approved" })]);
   const b = cell("2026-10-13", [p("in", "2026-10-13T01:00:00Z"), p("out", "2026-10-13T12:00:00Z", { overtimeMinutes: 60, overtimeStatus: "pending" })]);
   const s = summarize([a, b, cell("2026-10-09", [])]);
-  assert.deepEqual(s, { days: 2, cong: 2, leave: 0, holiday: 0, late: 0, absent: 1, partial: 0, overtimeMinutes: 90 });
+  assert.deepEqual(s, {
+    days: 2, cong: 2, sundayCong: 0, holidayCong: 0, congQuyDoi: 2, premiumPending: 0,
+    leave: 0, holiday: 0, late: 0, absent: 1, partial: 0, overtimeMinutes: 90,
+  });
 });
 
 test("công: đủ giờ = 1, nửa ngày = 0.5, quá ít = 0, đang làm hôm nay chưa tính", () => {
@@ -59,10 +62,10 @@ test("công: đủ giờ = 1, nửa ngày = 0.5, quá ít = 0, đang làm hôm n
   assert.equal(live.cong, null);
 });
 
-test("công: thiếu giờ ra ở quá khứ là 0; vắng là 0; nghỉ/lễ không có công", () => {
+test("công: thiếu giờ ra ở quá khứ là 0; vắng là 0; nghỉ phép không có công; lễ ngày thường hưởng 1 công", () => {
   assert.equal(cell("2026-10-12", [p("in", "2026-10-12T01:00:00Z")]).cong, 0);
   assert.equal(cell("2026-10-12", []).cong, 0);
-  assert.equal(cell("2026-10-12", [], { isHoliday: true }).cong, null);
+  assert.equal(cell("2026-10-12", [], { isHoliday: true }).cong, 1);
   assert.equal(cell("2026-10-12", [], { hasApprovedLeave: true, leaveKind: "om" }).label, "Ố");
 });
 
@@ -74,9 +77,23 @@ test("công: ngưỡng tùy chỉnh và tổng hợp theo tháng", () => {
   const holiday = cell("2026-10-14", [], { isHoliday: true, todayKey: "2026-10-30" });
   const leave = cell("2026-10-15", [], { hasApprovedLeave: true, todayKey: "2026-10-30" });
   const s = summarize([c, full, holiday, leave]);
-  assert.equal(s.cong, 1.5);
+  assert.equal(s.cong, 2.5); // 0.5 + 1 + 1 công lễ hưởng nguyên lương
   assert.equal(s.holiday, 1);
   assert.equal(s.leave, 1);
+});
+
+test("Chủ nhật và lễ chỉ tính khi tăng ca đã duyệt, nhân hệ số", () => {
+  const sun = (status) =>
+    cell("2026-10-11", [p("in", "2026-10-11T01:00:00Z"), p("out", "2026-10-11T09:00:00Z", { overtimeMinutes: 480, overtimeStatus: status })], { todayKey: "2026-10-30" });
+  assert.equal(sun("approved").dayType, "sunday");
+  const ok = summarize([sun("approved")], { sunday: 1.5, holiday: 2 });
+  assert.equal(ok.sundayCong, 1);
+  assert.equal(ok.congQuyDoi, 1.5);
+  const pend = summarize([sun("pending")], { sunday: 1.5, holiday: 2 });
+  assert.equal(pend.congQuyDoi, 0);
+  assert.equal(pend.premiumPending, 1);
+  const hol = cell("2026-10-14", [p("in", "2026-10-14T01:00:00Z"), p("out", "2026-10-14T09:00:00Z", { overtimeMinutes: 480, overtimeStatus: "approved" })], { isHoliday: true, todayKey: "2026-10-30" });
+  assert.equal(summarize([hol], { sunday: 1.5, holiday: 2 }).congQuyDoi, 2);
 });
 
 test("workedMinutes cộng từng đoạn vào–ra, bỏ nghỉ trưa", () => {

@@ -196,7 +196,7 @@ export function PunchPanel({
   const [summary, setSummary] = useState<MySummary | null>(null);
   useEffect(() => {
     let cancelled = false;
-    getMySummary()
+    getMySummary({ data: vnMonthKey() })
       .then((next) => {
         if (!cancelled) setSummary(next);
       })
@@ -581,11 +581,11 @@ export function ProfilePanel({
 
   return (
     <form className="space-y-4" onSubmit={submit}>
-      <div className="flex flex-col items-center rounded-lg border-[1.5px] border-ink bg-card px-5 py-6">
+      <div className="flex flex-col items-center rounded-xl border border-edge bg-card px-5 py-6">
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          className="relative grid size-28 place-items-center overflow-hidden rounded-full border border-line bg-paper text-2xl font-medium"
+          className="relative grid size-28 place-items-center overflow-hidden rounded-full bg-paper text-2xl font-medium ring-4 ring-ice"
           aria-label="Tải ảnh đại diện"
         >
           {avatar ? <img src={avatar} alt="" className="size-28 object-cover" /> : initial}
@@ -603,12 +603,12 @@ export function ProfilePanel({
         <button type="button" className="mt-3 text-sm font-medium text-ink" onClick={() => fileRef.current?.click()}>
           Tải ảnh đại diện
         </button>
-        <p className="mt-4 text-sm font-semibold text-ink">{data.companyName}</p>
-        <p className="text-xl font-medium">{name || "Nhân viên"}</p>
-        <p className="text-sm text-muted">{ROLE_LABEL[data.profile.role]}</p>
+        <p className="mt-4 text-xs font-semibold text-ice">{data.companyName}</p>
+        <p className="font-display text-3xl font-bold">{name || "Nhân viên"}</p>
+        <span className="mt-1 rounded-full bg-sand px-3 py-0.5 text-xs font-semibold text-muted">{ROLE_LABEL[data.profile.role]}</span>
       </div>
 
-      <div className="space-y-3 rounded-lg border-[1.5px] border-ink bg-card p-4">
+      <div className="space-y-3 rounded-xl border border-edge bg-card p-4">
         <label className="block space-y-1 text-sm">
           Họ tên
           <input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} required minLength={2} />
@@ -686,6 +686,20 @@ export function HistoryPanel({ settings }: { settings: Settings }) {
   const [rows, setRows] = useState<PunchRow[] | null>(null);
   const [error, setError] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
+  const [summary, setSummary] = useState<MySummary | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSummary(null);
+    getMySummary({ data: month })
+      .then((next) => {
+        if (!cancelled) setSummary(next);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [month]);
 
   useEffect(() => {
     let cancelled = false;
@@ -721,6 +735,16 @@ export function HistoryPanel({ settings }: { settings: Settings }) {
         <button type="button" className="grid size-11 place-items-center rounded-full border border-line bg-card" onClick={() => setMonth((m) => shiftMonth(m, 1))} aria-label="Tháng sau">
           <ChevronRight className="size-5" />
         </button>
+      </div>
+      <div className="rounded-xl bg-ice px-4 py-3.5 text-night">
+        <p className="text-xs font-medium">Công {formatMonthLabel(month)}</p>
+        <p className="font-display text-3xl leading-tight font-bold tabular-nums">
+          {summary ? `${congText(summary.cong)} / ${summary.standardDays}` : "…"}
+        </p>
+        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-night/25">
+          <div className="h-full rounded-full bg-night" style={{ width: `${summary ? Math.min(100, (summary.cong / Math.max(1, summary.standardDays)) * 100) : 0}%` }} />
+        </div>
+        <p className="mt-1.5 text-[0.7rem]">Chủ nhật và lễ chỉ tính khi tăng ca được duyệt, nhân hệ số của công ty.</p>
       </div>
       <div className="grid grid-cols-2 gap-2">
         <Stat label="Ngày có mặt" value={String(stats.days)} />
@@ -770,9 +794,9 @@ function dayStory(items: PunchRow[], settings: Settings): { late: string; overti
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-line bg-card px-3 py-3">
+    <div className="rounded-xl border border-line bg-card px-3.5 py-3">
       <p className="text-xs text-muted">{label}</p>
-      <p className="font-display text-4xl font-semibold tabular-nums">{value}</p>
+      <p className="font-display text-3xl font-bold tabular-nums">{value}</p>
     </div>
   );
 }
@@ -825,7 +849,7 @@ function MonthGrid({
   const cells: Array<string | null> = [...Array(lead).fill(null)];
   for (let day = 1; day <= count; day += 1) cells.push(`${month}-${String(day).padStart(2, "0")}`);
   return (
-    <div className="rounded-md border border-line bg-card p-3">
+    <div className="rounded-xl border border-line bg-card p-3">
       <div className="grid grid-cols-7 text-center text-xs text-muted">
         {["T2", "T3", "T4", "T5", "T6", "T7", "CN"].map((label) => (
           <span key={label} className="py-1">{label}</span>
@@ -838,11 +862,18 @@ function MonthGrid({
               key={day}
               type="button"
               onClick={() => onPick(day)}
-              className={`grid h-10 place-items-center rounded-md text-sm tabular-nums ${
+              className={`relative grid h-11 place-items-center rounded-lg text-sm tabular-nums ${
                 picked === day ? "bg-pine text-card" : markClass(days.get(day) ?? "none")
               }`}
             >
               {Number(day.slice(8))}
+              {days.get(day) && days.get(day) !== "none" ? (
+                <span
+                  className={`absolute bottom-1 size-1.5 rounded-full ${
+                    picked === day ? "bg-card" : days.get(day) === "ok" ? "bg-ok" : days.get(day) === "open" ? "bg-ice" : "bg-clay"
+                  }`}
+                />
+              ) : null}
             </button>
           ) : (
             <span key={`empty-${index}`} />
@@ -864,18 +895,23 @@ export function RequestsPanel({
   canReview,
   maxCorrections,
   userId,
+  workStart,
+  workEnd,
   onChanged,
 }: {
   canReview: boolean;
   maxCorrections: number;
   userId: string;
+  workStart: string;
+  workEnd: string;
   onChanged: () => Promise<void>;
 }) {
+  const [view, setView] = useState<"review" | "fix" | "leave" | "mine">("fix");
   const [rows, setRows] = useState<CorrectionRow[] | null>(null);
   const [error, setError] = useState("");
   const [date, setDate] = useState(vnDateKey());
   const [punchType, setPunchType] = useState<"in" | "out">("in");
-  const [requestedTime, setRequestedTime] = useState("08:00");
+  const [requestedTime, setRequestedTime] = useState(workStart);
   const [kind, setKind] = useState("quen");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -933,9 +969,32 @@ export function RequestsPanel({
   ).length;
   const archive = (rows ?? []).filter((row) => !canReview || row.status !== "pending");
 
+  const tabs: { id: typeof view; label: string; badge?: number }[] = [
+    ...(canReview ? [{ id: "review" as const, label: "Chờ duyệt", badge: pending.length }] : []),
+    { id: "fix", label: "Sửa công" },
+    { id: "leave", label: "Xin nghỉ" },
+    { id: "mine", label: canReview ? "Tất cả" : "Đã gửi" },
+  ];
+  const tab = tabs.some((t) => t.id === view) ? view : "fix";
+
   return (
     <div className="space-y-4">
-      {canReview ? (
+      <div className="flex gap-1 rounded-xl border border-line bg-card p-1" role="tablist" aria-label="Loại đơn">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setView(t.id)}
+            className={`flex-1 rounded-lg px-2 py-2 text-sm font-semibold ${tab === t.id ? "bg-ice text-night" : "text-muted"}`}
+          >
+            {t.label}
+            {t.badge ? <span className="ml-1.5 rounded-full bg-clay px-1.5 text-xs text-night">{t.badge}</span> : null}
+          </button>
+        ))}
+      </div>
+      {canReview && tab === "review" ? (
         <section className="space-y-2">
           <div className="flex items-end justify-between">
             <h2 className="font-display text-2xl font-semibold">Đơn chờ duyệt</h2>
@@ -972,8 +1031,9 @@ export function RequestsPanel({
           ))}
         </section>
       ) : null}
-      <form className="space-y-3 rounded-md border border-line bg-card p-4" onSubmit={submit}>
-        <h2 className="font-display text-2xl font-semibold">Gửi đơn sửa</h2>
+      {tab === "fix" ? (
+      <form className="space-y-3 rounded-xl border border-line bg-card p-4" onSubmit={submit}>
+        <h2 className="font-display text-2xl font-bold">Gửi đơn sửa công</h2>
         <p className="text-sm text-muted">
           Tháng này đã dùng {used}/{maxCorrections} đơn không bị từ chối. Người phụ trách sẽ duyệt.
         </p>
@@ -990,7 +1050,11 @@ export function RequestsPanel({
         <div className="grid grid-cols-2 gap-3">
           <label className="space-y-1 text-sm">
             Loại
-            <select className={fieldClass} value={punchType} onChange={(e) => setPunchType(e.target.value as "in" | "out")}>
+            <select className={fieldClass} value={punchType} onChange={(e) => {
+                const next = e.target.value as "in" | "out";
+                setPunchType(next);
+                setRequestedTime(next === "in" ? workStart : workEnd);
+              }}>
               <option value="in">Vào ca</option>
               <option value="out">Ra ca</option>
             </select>
@@ -1009,16 +1073,18 @@ export function RequestsPanel({
           Ghi chú
           <textarea className="min-h-24 w-full rounded-md border border-line bg-card px-3 py-2 text-base outline-none focus:border-ink" value={note} onChange={(e) => setNote(e.target.value)} required minLength={4} />
         </label>
-        <button className={primaryBtn} type="submit" disabled={busy}>{busy ? "Đang gửi…" : "Gửi đơn"}</button>
+        <button className={`${primaryBtn} w-full`} type="submit" disabled={busy}>{busy ? "Đang gửi…" : "Gửi đơn"}</button>
       </form>
+      ) : null}
       {error ? <p className="text-sm text-clay">{error}</p> : null}
-      <LeaveSection canReview={canReview} userId={userId} onChanged={onChanged} />
+      {tab === "leave" ? <LeaveSection canReview={canReview} userId={userId} onChanged={onChanged} /> : null}
+      {tab === "mine" ? (
       <section className="space-y-2">
         <h3 className="font-semibold">{canReview ? "Tất cả đơn" : "Đơn của tôi"}</h3>
         {rows == null ? <p className="text-sm text-muted">Đang tải đơn…</p> : null}
         {rows && archive.length === 0 ? <p className="text-sm text-muted">Chưa có đơn nào.</p> : null}
         {archive.map((row) => (
-          <article key={`all-${row.id}`} className="rounded-md border border-line bg-card px-4 py-3">
+          <article key={`all-${row.id}`} className="rounded-xl border border-line bg-card px-4 py-3">
             <div className="flex items-center justify-between gap-3">
               <p className="font-medium">{row.fullName}</p>
               <Badge tone={row.status === "approved" ? "ok" : row.status === "rejected" ? "late" : "muted"}>
@@ -1033,6 +1099,7 @@ export function RequestsPanel({
           </article>
         ))}
       </section>
+      ) : null}
     </div>
   );
 }
@@ -1242,7 +1309,7 @@ export function ManagePanel({ data, onChanged }: { data: WorkspaceData; onChange
       <OvertimeQueue rows={data.overtimePending} onChanged={onChanged} />
       {data.settings.allowOffsite || data.offsiteToday.length > 0 ? <OffsiteReport rows={data.offsiteToday} /> : null}
       <TimesheetExport />
-      <section className="rounded-lg border-[1.5px] border-ink bg-card p-4">
+      <section className="rounded-xl border border-edge bg-card p-4">
         <h2 className="font-display text-2xl font-semibold">Nhân sự</h2>
         <p className="mt-1 text-sm text-muted">Danh sách tất cả thành viên. Quản trị bấm “Sửa” để cập nhật hồ sơ hoặc khóa tài khoản.</p>
         <div className="mt-3">
@@ -1250,7 +1317,7 @@ export function ManagePanel({ data, onChanged }: { data: WorkspaceData; onChange
         </div>
       </section>
       {isAdmin ? (
-        <details className="rounded-lg border-[1.5px] border-ink bg-card p-4">
+        <details className="rounded-xl border border-edge bg-card p-4">
           <summary className="font-display cursor-pointer text-2xl font-semibold">Cài đặt công ty</summary>
           <div className="mt-4 space-y-4">
             <InviteCodeCard />
@@ -1289,7 +1356,7 @@ function Glance({ label, value, tone }: { label: string; value: number; tone: "p
   const toneClass =
     tone === "pine" ? "text-ink" : tone === "ok" ? "text-ok" : tone === "clay" ? "text-clay" : "text-muted";
   return (
-    <article className="rounded-lg border-[1.5px] border-ink bg-card px-4 py-3">
+    <article className="rounded-xl border border-edge bg-card px-4 py-3">
       <p className={`font-display text-5xl font-semibold tabular-nums ${toneClass}`}>{value}</p>
       <p className="mt-1 text-sm text-muted">{label}</p>
     </article>
@@ -1524,7 +1591,7 @@ export function SettingsForm({ data, onChanged }: { data: WorkspaceData; onChang
 
   return (
     <form className="space-y-3 rounded-md border border-line bg-card p-4" onSubmit={submit}>
-      <h2 className="font-semibold">Giờ và quy tắc</h2>
+      <h2 className="font-display text-xl font-bold">Giờ và quy tắc</h2>
       <label className="block space-y-1 text-sm">
         Tên công ty
         <input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} />
@@ -1560,6 +1627,21 @@ export function SettingsForm({ data, onChanged }: { data: WorkspaceData; onChang
         </label>
       </div>
       <p className="text-xs text-muted">Giờ làm là tổng các đoạn vào–ra trong ngày. Dưới mức nửa công thì tính 0.</p>
+      <div className="grid grid-cols-3 gap-3">
+        <label className="space-y-1 text-sm">
+          Công chuẩn / tháng
+          <input className={fieldClass} type="number" min={20} max={31} value={settings.standardDays} onChange={(e) => setSettings({ ...settings, standardDays: Number(e.target.value) })} />
+        </label>
+        <label className="space-y-1 text-sm">
+          Hệ số Chủ nhật
+          <input className={fieldClass} type="number" min={1} max={5} step={0.1} value={settings.sundayRate} onChange={(e) => setSettings({ ...settings, sundayRate: Number(e.target.value) })} />
+        </label>
+        <label className="space-y-1 text-sm">
+          Hệ số ngày lễ
+          <input className={fieldClass} type="number" min={1} max={5} step={0.1} value={settings.holidayRate} onChange={(e) => setSettings({ ...settings, holidayRate: Number(e.target.value) })} />
+        </label>
+      </div>
+      <p className="text-xs text-muted">Công chuẩn tính theo tháng trừ Chủ nhật (mặc định 26). Làm Chủ nhật hoặc lễ phải được duyệt tăng ca, rồi nhân hệ số. Nghỉ lễ ngày thường vẫn tính 1 công.</p>
       <label className="flex items-center gap-3 text-sm">
         <input type="checkbox" checked={settings.rankingsEnabled} onChange={(e) => setSettings({ ...settings, rankingsEnabled: e.target.checked })} />
         Bật bảng xếp hạng tháng
@@ -1629,7 +1711,7 @@ export function LocationEditor({ locations, onChanged }: { locations: LocationRo
 
   return (
     <section className="space-y-3">
-      <h2 className="font-semibold">Điểm chấm công</h2>
+      <h2 className="font-display text-xl font-bold">Điểm chấm công</h2>
       {locations.map((loc) => (
         <article key={loc.id} className="flex items-center justify-between gap-3 rounded-md border border-line bg-card px-4 py-3">
           <div>
@@ -1657,7 +1739,7 @@ export function LocationEditor({ locations, onChanged }: { locations: LocationRo
         </article>
       ))}
       <form className="space-y-3 rounded-md border border-line bg-card p-4" onSubmit={submit}>
-        <h3 className="font-medium">{form.id ? "Sửa điểm" : "Thêm điểm"}</h3>
+        <h3 className="font-display text-xl font-bold">{form.id ? "Sửa điểm" : "Thêm điểm"}</h3>
         <input className={fieldClass} placeholder="Tên điểm" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
         <div className="grid grid-cols-2 gap-3">
           <input className={fieldClass} placeholder="Vĩ độ" value={form.lat} onChange={(e) => setForm({ ...form, lat: e.target.value })} required />

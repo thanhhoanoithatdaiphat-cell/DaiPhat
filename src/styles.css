@@ -4,18 +4,21 @@
 @theme {
   --font-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Barlow Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
-  --color-paper: #FAF3E3;
-  --color-ink: #2B1D12;
-  --color-pine: #2B1D12;
-  --color-pine-deep: #150E08;
-  --color-ice: #FCB300;
-  --color-clay: #7A2E2A;
-  --color-sand: #F0E4C8;
-  --color-card: #FFFBF0;
-  --color-muted: #6B5640;
-  --color-line: #EBD9B0;
-  --color-ok: #1F3D36;
-  --color-gold: #FCB300;
+  --color-paper: #faf3e3;
+  --color-ink: #1c130c;
+  --color-pine: #1c130c;
+  --color-pine-deep: #0f0905;
+  --color-ice: #fcb300;
+  --color-clay: #c63a2d;
+  --color-sand: #f1e6c8;
+  --color-card: #fffbf0;
+  --color-muted: #7a6a55;
+  --color-line: #eadfc4;
+  --color-ok: #2f6b4f;
+  --color-gold: #fcb300;
+  --color-night: #1c130c;
+  --color-night-deep: #150e08;
+  --color-night-card: #2c241c;
 }
 
 @layer base {
@@ -44,6 +47,28 @@
     text-wrap: pretty;
   }
 }
+
+/* Giao diện tối của app điện thoại: đổi token màu trong phạm vi .theme-night */
+.theme-night {
+  --color-paper: #1c130c;
+  --color-ink: #fff3d6;
+  --color-pine: #fcb300;
+  --color-card: #2c241c;
+  --color-sand: #3a2f24;
+  --color-muted: #a8977d;
+  --color-line: #43372b;
+  --color-ok: #6fd3a0;
+  --color-clay: #ff9c8a;
+  color: var(--color-ink);
+}
+.theme-night .border-ink { border-color: var(--color-line); }
+.theme-night .btn-3d-primary { color: #1c130c; box-shadow: 0 3px 0 #8a5f00; }
+.theme-night .btn-3d-secondary { box-shadow: 0 0 0 1.5px var(--color-line), 0 3px 0 var(--color-line); }
+.theme-night .btn-3d-secondary:active:not(:disabled) { box-shadow: 0 0 0 1.5px var(--color-line); }
+.theme-night .bg-card.rounded-2xl,
+.theme-night .bg-card.rounded-3xl,
+.theme-night .bg-card.rounded-t-3xl { box-shadow: none; }
+.theme-night input, .theme-night select, .theme-night textarea { color-scheme: dark; }
 
 .surface-pass {
   box-shadow: 0 0 0 1.5px var(--color-ink), 0 5px 0 var(--color-ink);
@@ -75,9 +100,9 @@
 .btn-3d:focus-visible, .punch-float:focus-visible { outline: 3px solid var(--color-clay); outline-offset: 4px; }
 
 .btn-3d-primary {
-  color: #2B1D12;
+  color: var(--color-ink);
   background: var(--color-ice);
-  box-shadow: 0 3px 0 #9A6C00;
+  box-shadow: 0 3px 0 var(--color-ink);
 }
 .btn-3d-primary:active:not(:disabled) { transform: translateY(3px); box-shadow: none; }
 
@@ -88,36 +113,36 @@
 }
 .btn-3d-secondary:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 0 0 1.5px var(--color-ink); }
 
-/* Nút chấm công: con dấu đen, viền vàng thước */
+/* Nút chấm công: logo tròn, vành vàng, phát sáng */
 .punch-float {
   position: relative;
   display: grid;
-  width: clamp(9.5rem, 46vw, 11.5rem);
-  height: clamp(9.5rem, 46vw, 11.5rem);
+  width: 12.5rem;
+  height: 12.5rem;
   place-items: center;
   border: 0;
   border-radius: 999px;
-  padding: 6px;
-  background: #1C130C;
-  box-shadow: 0 0 0 5px #FCB300, 0 0 0 10px rgb(252 179 0 / 0.22), 0 0 56px 6px rgb(252 179 0 / 0.26);
+  padding: 0.5rem;
+  background: #1c130c;
+  box-shadow: 0 0 0 4px #fcb300, 0 0 0 9px rgb(252 179 0 / 0.18), 0 0 46px rgb(252 179 0 / 0.28);
   transition: transform 110ms ease, box-shadow 110ms ease;
 }
 .punch-float:active:not(:disabled) {
-  transform: translateY(5px) scale(0.985);
+  transform: scale(0.97);
   animation: none;
-  box-shadow: 0 0 0 5px #FCB300, 0 0 0 8px rgb(252 179 0 / 0.18), 0 0 28px 2px rgb(252 179 0 / 0.2);
+  box-shadow: 0 0 0 4px #fcb300, 0 0 0 7px rgb(252 179 0 / 0.18), 0 0 24px rgb(252 179 0 / 0.2);
 }
 .punch-face {
   position: relative; display: block; width: 100%; height: 100%; overflow: hidden;
-  border-radius: 999px;
+  border-radius: 999px; background: #1c130c;
 }
 .punch-logo { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
 .punch-halo { display: none; }
 .punch-invite, .punch-invite::after {
-  position: absolute; border-radius: 999px; border: 2px solid #FCB300; pointer-events: none;
+  position: absolute; border-radius: 999px; border: 2px solid var(--color-ice); pointer-events: none;
 }
-.punch-invite { inset: -20px; }
-.punch-invite::after { content: ""; inset: 0; border-color: #FCB300; }
+.punch-invite { inset: -16px; }
+.punch-invite::after { content: ""; inset: 0; border-color: var(--color-clay); }
 
 @media (prefers-reduced-motion: no-preference) {
   .punch-float:not(:disabled) .punch-invite,
@@ -130,12 +155,12 @@
 }
 
 /* Thước cuộn: ca làm trải dọc, con trỏ đỏ theo giờ */
-.tape { position: relative; background: var(--color-ice); color: #2B1D12; padding: 0.75rem 0 0.5rem; box-shadow: 0 2px 0 rgb(0 0 0 / 0.25); }
+.tape { position: relative; background: var(--color-ice); color: var(--color-ink); padding: 0.75rem 0 0.5rem; box-shadow: 0 2px 0 rgb(0 0 0 / 0.25); }
 .tape-ticks {
   height: 26px; margin-inline: 1.375rem;
   background:
-    repeating-linear-gradient(90deg, #2B1D12 0 1.5px, transparent 1.5px 10%) bottom / 100% 22px no-repeat,
-    repeating-linear-gradient(90deg, #2B1D12 0 1px, transparent 1px 2%) bottom / 100% 10px no-repeat;
+    repeating-linear-gradient(90deg, var(--color-ink) 0 1.5px, transparent 1.5px 10%) bottom / 100% 22px no-repeat,
+    repeating-linear-gradient(90deg, var(--color-ink) 0 1px, transparent 1px 2%) bottom / 100% 10px no-repeat;
 }
 .tape-mark { position: absolute; top: 6px; bottom: 28px; width: 3px; background: var(--color-clay); }
 .tape-mark::before { content: ""; position: absolute; top: -2px; left: -5px; border: 6.5px solid transparent; border-top-color: var(--color-clay); }
@@ -179,8 +204,8 @@
 
 /* Mobile compact: giảm kích thước nút và khoảng cách trên màn thấp */
 @media (max-height: 740px) {
-  .punch-float { width: 9rem; height: 9rem; }
-  .punch-invite { inset: -14px; }
+  .punch-float { width: 9.5rem; height: 9.5rem; }
+  .punch-invite { inset: -12px; }
 }
 @media (min-width: 768px) {
   .punch-float { width: 12.5rem; height: 12.5rem; }

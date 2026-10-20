@@ -10,6 +10,7 @@ import type {
   LeaveRow,
   LocationRow,
   MonthGrid,
+  MySummary,
   OvertimeStatus,
   PersonRow,
   ProfileRow,
@@ -20,9 +21,17 @@ import type {
   Settings,
   WorkspaceData,
 } from "@/lib/attendance-types";
-import { dayRange, hmToMinutes, isEarlyOut, minutesToHm, monthRange, vnDateKey, vnMinutes, vnWeekday } from "@/lib/vn-time";
+import { dayRange, hmToMinutes, isEarlyOut, minutesToHm, monthRange, vnDateKey, vnMinutes, vnMonthKey, vnWeekday } from "@/lib/vn-time";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
-import { congOf, workedMinutes as sumWorked, type MonthPunch } from "@/lib/month-grid";
+import {
+  buildCell,
+  congOf,
+  monthDayKeys,
+  summarize,
+  weekdayOf,
+  workedMinutes as sumWorked,
+  type MonthPunch,
+} from "@/lib/month-grid";
 import { HISTORY_MAX_DAYS } from "@/lib/attendance-types";
 
 const COMPANY_ID = "co-default";
@@ -335,6 +344,8 @@ export const getWorkspace = createServerFn({ method: "POST" })
         role: Role;
         type: "in" | "out" | null;
         punched_at: unknown;
+        first_in_at: unknown;
+        first_in_late: number | null;
         employee_code: string | null;
         department: string | null;
         job_title: string | null;
@@ -343,6 +354,7 @@ export const getWorkspace = createServerFn({ method: "POST" })
         is_active: boolean;
       }>`
         select p.user_id, p.full_name, p.email, p.phone, p.role, a.type, a.punched_at,
+               f.punched_at as first_in_at, f.late_minutes as first_in_late,
                p.employee_code, p.department, p.job_title, p.started_on, p.ended_on, p.is_active
         from profiles p
         left join lateral (
@@ -353,6 +365,15 @@ export const getWorkspace = createServerFn({ method: "POST" })
           order by punched_at desc
           limit 1
         ) a on true
+        left join lateral (
+          select punched_at, late_minutes from attendances
+          where user_id = p.user_id
+            and type = 'in'
+            and punched_at >= ${dayStart}::timestamptz
+            and punched_at < ${dayEnd}::timestamptz
+          order by punched_at asc
+          limit 1
+        ) f on true
         where p.company_id = ${profile.companyId}
         order by p.full_name asc
       `;
@@ -364,6 +385,8 @@ export const getWorkspace = createServerFn({ method: "POST" })
         role: p.role,
         lastType: p.type,
         lastAt: p.punched_at ? stamp(p.punched_at) : null,
+        firstInAt: p.first_in_at ? stamp(p.first_in_at) : null,
+        firstInLate: Number(p.first_in_late ?? 0),
         employeeCode: p.employee_code,
         department: p.department,
         jobTitle: p.job_title,
@@ -475,6 +498,89 @@ export const getWorkspace = createServerFn({ method: "POST" })
       lateToday,
       overtimePending,
     };
+  });
+
+/** Công tích lũy của chính người dùng trong tháng hiện tại (cùng quy tắc với bảng công). */
+export const getMySummary = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<MySummary> => {
+    const profile = await requireProfile(context.userId);
+    const sql = await getSql();
+    const month = vnMonthKey();
+    const todayKey = vnDateKey();
+    const { start, end } = monthRange(month);
+    const companies = await sql<{ settings: unknown }>`
+      select settings from companies where id = ${profile.companyId}
+    `;
+    const settings = readSettings(companies[0]?.settings);
+    const rows = await sql<{
+      id: number;
+      type: "in" | "out";
+      punched_at: unknown;
+      status: "valid" | "corrected";
+      offsite: boolean;
+      late_minutes: number;
+      overtime_minutes: number;
+      overtime_status: OvertimeStatus;
+    }>`
+      select id, type, punched_at, status, offsite, late_minutes, overtime_minutes, overtime_status
+      from attendances
+      where user_id = ${profile.userId}
+        and company_id = ${profile.companyId}
+        and punched_at >= ${start}::timestamptz
+        and punched_at < ${end}::timestamptz
+        and status in ('valid', 'corrected')
+      order by punched_at asc
+    `;
+    const holidayRows = await sql<{ date: unknown }>`
+      select date from holidays where company_id = ${profile.companyId}
+        and date >= ${start}::date and date < ${end}::date
+    `;
+    const leaveRows = await sql<{ leave_date: unknown; kind: string }>`
+      select leave_date, kind from leave_requests
+      where company_id = ${profile.companyId} and user_id = ${profile.userId} and status = 'approved'
+        and leave_date >= ${start}::date and leave_date < ${end}::date
+    `;
+    const holidays = new Set(holidayRows.map((r) => dateOnly(r.date)));
+    const leaves = new Map(leaveRows.map((r) => [dateOnly(r.leave_date), r.kind]));
+    const byDay = new Map<string, MonthPunch[]>();
+    for (const row of rows) {
+      const at = stamp(row.punched_at);
+      const day = vnDateKey(at);
+      const list = byDay.get(day) ?? [];
+      list.push({
+        id: Number(row.id),
+        type: row.type,
+        at,
+        status: row.status,
+        offsite: Boolean(row.offsite),
+        lateMinutes: Number(row.late_minutes ?? 0),
+        overtimeMinutes: Number(row.overtime_minutes ?? 0),
+        overtimeStatus: row.overtime_status ?? "none",
+        nearestName: null,
+        distanceMeters: null,
+        hasPhoto: false,
+      });
+      byDay.set(day, list);
+    }
+    const startedOn = profile.startedOn ?? null;
+    const cells = monthDayKeys(month).map((dateKey) =>
+      buildCell({
+        dateKey,
+        punches: byDay.get(dateKey) ?? [],
+        todayKey,
+        startedOn,
+        isHoliday: holidays.has(dateKey),
+        hasApprovedLeave: leaves.has(dateKey),
+        leaveKind: leaves.get(dateKey) ?? null,
+        lateThreshold: settings.lateMinutes,
+        fullDayMinutes: settings.fullDayMinutes,
+        halfDayMinutes: settings.halfDayMinutes,
+        hm: (iso) => minutesToHm(vnMinutes(iso)),
+      }),
+    );
+    const standardDays = monthDayKeys(month).filter((d) => weekdayOf(d) !== 0 && !holidays.has(d)).length;
+    return { month, cong: summarize(cells).cong, standardDays };
   });
 
 export const listHistory = createServerFn({ method: "POST" })

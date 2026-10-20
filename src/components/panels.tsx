@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ChevronLeft, ChevronRight, MapPin } from "lucide-react";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
 import { CameraSheet } from "@/components/camera-sheet";
-import { UserButton } from "@/lib/auth/gates";
 import { errorText, fieldClass, primaryBtn, secondaryBtn } from "@/components/ui";
 import { InviteCodeCard } from "@/components/invite-card";
 import {
@@ -10,6 +9,7 @@ import {
   createLeaveRequest,
   getPunchPhoto,
   listCorrections,
+  getMySummary,
   listLeaves,
   listHistory,
   listRankings,
@@ -28,6 +28,7 @@ import type {
   CorrectionRow,
   LeaveRow,
   LocationRow,
+  MySummary,
   PersonRow,
   PunchResult,
   PunchRow,
@@ -45,7 +46,6 @@ import {
   mondayIndex,
   daysInMonth,
   shiftMonth,
-  todayLong,
   vnDateKey,
   vnMonthKey,
   vnTime,
@@ -114,44 +114,72 @@ function toneFor(row: PunchRow, settings: Settings): "ok" | "late" | "muted" {
   return "ok";
 }
 
-function hmMin(hm: string): number {
-  const [h, m] = hm.split(":").map(Number);
-  return (h || 0) * 60 + (m || 0);
+function distanceM(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const rad = Math.PI / 180;
+  const dLat = (bLat - aLat) * rad;
+  const dLng = (bLng - aLng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLng / 2) ** 2;
+  return Math.round(2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(h))));
 }
 
-function shiftProgress(start: string, end: string, time: string): { pct: number; note: string } {
-  const from = hmMin(start);
-  const to = Math.max(from + 60, hmMin(end));
-  const now = hmMin(time.slice(0, 5));
-  const pct = Math.max(0, Math.min(100, ((now - from) / (to - from)) * 100));
-  const rest = to - now;
-  const note = now < from ? "Chưa đến giờ ca" : rest > 0 ? `Còn ${Math.floor(rest / 60)} giờ ${rest % 60} phút đến hết ca` : "Đã hết ca";
-  return { pct, note };
+type GeoState =
+  | { status: "wait" }
+  | { status: "denied" }
+  | { status: "unsupported" }
+  | { status: "ok"; lat: number; lng: number; accuracy: number };
+
+/** Theo dõi GPS liên tục để thẻ vị trí hiện đúng khoảng cách tới điểm chấm công. */
+function useGeoWatch(): GeoState {
+  const [geo, setGeo] = useState<GeoState>({ status: "wait" });
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setGeo({ status: "unsupported" });
+      return;
+    }
+    const id = navigator.geolocation.watchPosition(
+      (pos) => setGeo({ status: "ok", lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+      (err) => setGeo(err.code === 1 ? { status: "denied" } : { status: "wait" }),
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 },
+    );
+    return () => navigator.geolocation.clearWatch(id);
+  }, []);
+  return geo;
 }
 
-function workedToday(rows: PunchRow[]): { minutes: number; open: boolean } {
+function liveWorkedMinutes(rows: PunchRow[], nowMs: number): number {
   const sorted = [...rows].sort((a, b) => a.punchedAt.localeCompare(b.punchedAt));
-  let minutes = 0;
-  let openIn: string | null = null;
+  let total = 0;
+  let openIn: number | null = null;
   for (const row of sorted) {
-    if (row.type === "in") openIn = row.punchedAt;
-    else if (openIn) {
-      minutes += Math.max(0, (new Date(row.punchedAt).getTime() - new Date(openIn).getTime()) / 60000);
+    const t = new Date(row.punchedAt).getTime();
+    if (row.type === "in") openIn = t;
+    else if (openIn != null) {
+      total += Math.max(0, t - openIn) / 60000;
       openIn = null;
     }
   }
-  if (openIn) minutes += Math.max(0, (Date.now() - new Date(openIn).getTime()) / 60000);
-  return { minutes, open: openIn !== null };
+  if (openIn != null) total += Math.max(0, nowMs - openIn) / 60000;
+  return Math.floor(total);
+}
+
+function dateLine(): string {
+  const weekday = new Intl.DateTimeFormat("vi-VN", { timeZone: VN, weekday: "long" }).format(new Date());
+  const [y, m, d] = vnDateKey().split("-");
+  return `${weekday}, ${d}/${m}/${y}`;
+}
+
+function congText(n: number): string {
+  return String(n).replace(".", ",");
 }
 
 export function PunchPanel({
   data,
   onChanged,
-  onRequests,
+  onGoRequests,
 }: {
   data: WorkspaceData;
   onChanged: () => Promise<void>;
-  onRequests?: () => void;
+  onGoRequests: () => void;
 }) {
   const [cameraFor, setCameraFor] = useState<"in" | "out" | null>(null);
   const [busy, setBusy] = useState(false);
@@ -164,14 +192,47 @@ export function PunchPanel({
   const last = data.today[data.today.length - 1];
   const clock = useClock();
   const primary: "in" | "out" = last?.type === "in" ? "out" : "in";
-  const firstIn = data.today.find((r) => r.type === "in");
-  const worked = workedToday(data.today);
-  const workedText = worked.minutes > 0 ? `${Math.floor(worked.minutes / 60)}h ${String(Math.floor(worked.minutes % 60)).padStart(2, "0")}` : "0h 00";
-  const inLate = firstIn ? isLate(firstIn.lateMinutes, data.settings.lateMinutes) && vnWeekday(firstIn.punchedAt) !== 0 : false;
-  const inNote = !firstIn ? "Chưa vào ca" : inLate ? `Muộn ${firstIn.lateMinutes} phút` : "Đúng giờ";
-  const workedNote =
-    worked.minutes >= data.settings.fullDayMinutes ? "Đủ công" : worked.open ? "Đang trong ca" : worked.minutes > 0 ? "Chưa đủ công" : "Chưa vào ca";
-  const shift = shiftProgress(data.settings.workStart, data.settings.workEnd, clock.time);
+  const geo = useGeoWatch();
+  const [summary, setSummary] = useState<MySummary | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getMySummary()
+      .then((next) => {
+        if (!cancelled) setSummary(next);
+      })
+      .catch(() => {
+        if (!cancelled) setSummary(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [data.today.length]);
+  const nowMs = Date.now();
+  const firstIn = data.today.find((row) => row.type === "in") ?? null;
+  const worked = liveWorkedMinutes(data.today, nowMs);
+  const inLate = firstIn ? isLate(firstIn.lateMinutes, data.settings.lateMinutes) : false;
+  const nearest = (() => {
+    if (geo.status !== "ok" || active.length === 0) return null;
+    let best: { name: string; dist: number; radius: number } | null = null;
+    for (const loc of active) {
+      const dist = distanceM(geo.lat, geo.lng, loc.lat, loc.lng);
+      if (!best || dist < best.dist) best = { name: loc.name, dist, radius: loc.radiusMeters };
+    }
+    return best;
+  })();
+  const gpsLabel =
+    geo.status === "ok"
+      ? geo.accuracy <= 50
+        ? { text: "GPS tốt", cls: "text-ok" }
+        : geo.accuracy <= 150
+          ? { text: "GPS yếu", cls: "text-ice" }
+          : { text: "GPS kém", cls: "text-clay" }
+      : geo.status === "wait"
+        ? { text: "Đang định vị…", cls: "text-muted" }
+        : { text: "Chưa có GPS", cls: "text-clay" };
+  const monthNo = Number(vnMonthKey().slice(5));
+  const cong = summary?.cong ?? 0;
+  const standard = summary?.standardDays ?? 0;
 
   async function submit(type: "in" | "out", lat: number, lng: number, photo: string, locationSource: "gps" | "manual", accuracy?: number) {
     setBusy(true);
@@ -254,95 +315,113 @@ export function PunchPanel({
   }
 
   return (
-    <div className="tech-stage flex min-h-full flex-col pb-4 text-ink md:pb-6">
-      <header className="safe-top flex items-center justify-between gap-3 px-5 pb-1 md:px-8">
+    <div className="min-h-full pb-5 md:pb-8">
+      <section className="safe-top flex items-start justify-between gap-3 px-5 md:px-8">
         <div className="min-w-0">
-          <p className="truncate text-sm text-muted">{todayLong()}</p>
-          <p className="truncate text-xl font-semibold md:text-2xl">
-            {clock.hello}, {data.profile.fullName}
+          <p className="text-xs text-muted">{dateLine()}</p>
+          <h1 className="font-display mt-0.5 truncate text-[1.7rem] leading-tight font-bold text-ink md:text-4xl">
+            Chào {data.profile.fullName}
+          </h1>
+        </div>
+        <span className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-full bg-night-deep ring-2 ring-ice">
+          <img src={data.profile.avatar || "/punch-logo-dark.png"} alt="" className="size-full object-cover" />
+        </span>
+      </section>
+
+      <div className="mx-4 mt-4 flex items-center gap-3 rounded-xl border border-line bg-card px-3.5 py-3 md:mx-8">
+        <MapPin className="size-5 shrink-0 text-ice" strokeWidth={2} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-ink">
+            {nearest?.name ?? (active[0]?.name || "Điểm chấm công")}
+          </p>
+          <p className={`truncate text-xs ${nearest && nearest.dist > nearest.radius ? "text-clay" : "text-muted"}`}>
+            {nearest
+              ? nearest.dist <= nearest.radius
+                ? `Trong phạm vi chấm công · cách ${formatMeters(nearest.dist)}`
+                : `Ngoài phạm vi chấm công · cách ${formatMeters(nearest.dist)}`
+              : active.length === 0
+                ? "Chưa có điểm chấm công đang bật"
+                : geo.status === "denied"
+                  ? "Hãy bật định vị cho trình duyệt"
+                  : geo.status === "unsupported"
+                    ? "Máy không hỗ trợ GPS"
+                    : "Đang xác định vị trí của bạn…"}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <div className="hero-account">
-            <UserButton />
-          </div>
-          <img src="/punch-logo.png" alt="Đại Phát Furniture" className="size-12 rounded-full md:size-14" />
-        </div>
-      </header>
+        <span className={`shrink-0 text-xs font-semibold ${gpsLabel.cls}`}>{gpsLabel.text}</span>
+      </div>
 
-      {active.length > 0 || data.settings.allowOffsite ? (
-        <div className="mx-5 mt-3 flex items-center gap-3 rounded-xl border border-line bg-card/60 px-3.5 py-2.5 md:mx-8">
-          <MapPin className="size-5 shrink-0 text-ok" strokeWidth={2} />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold">
-              {active[0]?.name ?? data.companyName}
-              {active.length > 1 ? ` +${active.length - 1} điểm` : ""}
-            </p>
-            <p className="truncate text-xs text-muted">
-              {data.settings.allowOffsite ? "Được chấm ngoài điểm, sẽ báo quản trị" : `Điểm chấm công · bán kính ${active[0]?.radiusMeters ?? 0} m`}
-            </p>
-          </div>
-          <span className="shrink-0 text-xs font-semibold text-ok">GPS</span>
-        </div>
-      ) : null}
-
-      <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-4">
-        <p className="font-display text-[clamp(3rem,15vw,4rem)] leading-none font-semibold tabular-nums tracking-tight md:text-[6rem]">
+      <div className="mt-5 text-center">
+        <p className="font-display text-[4.5rem] leading-none font-bold tabular-nums text-ink md:text-[6.5rem]">
           {clock.time.slice(0, 5)}
-          <span className="ml-1 text-2xl font-medium text-muted md:text-3xl">{clock.time.slice(6)}</span>
         </p>
-        <p className="text-sm text-muted">
-          Ca {data.settings.workStart} – {data.settings.workEnd}
+        <p className="mt-1 text-xs text-muted">
+          Ca ngày · {data.settings.workStart} – {data.settings.workEnd}
         </p>
+      </div>
+
+      <div className="mt-7 flex flex-col items-center md:mt-10">
         <button
           type="button"
           disabled={busy || (!data.settings.allowOffsite && active.length === 0)}
           onClick={() => locateFirst(primary)}
           aria-label={busy ? "Đang ghi" : primary === "in" ? "Vào ca" : "Ra ca"}
-          className="punch-float mt-4 disabled:opacity-40 md:mt-8"
+          className="punch-float disabled:opacity-40"
         >
           <span className="punch-halo" aria-hidden="true" />
           <span className="punch-invite" aria-hidden="true" />
           <span className="punch-face">
-            <img src="/punch-logo.png" alt="" className="punch-logo" />
+            <img src="/punch-logo-dark.png" alt="" className="punch-logo" />
           </span>
         </button>
-        <p className="mt-6 font-display text-2xl font-bold tracking-wide text-ice md:mt-10 md:text-3xl">
-          {primary === "in" ? "CHẠM ĐỂ VÀO CA" : "CHẠM ĐỂ RA CA"}
+        <p className="mt-5 text-center font-display text-xl font-bold tracking-wide text-ice md:text-2xl">
+          {busy ? "ĐANG GHI…" : primary === "in" ? "CHẠM ĐỂ VÀO CA" : "CHẠM ĐỂ RA CA"}
         </p>
         {active.length === 0 && !data.settings.allowOffsite ? (
-          <p className="px-6 text-center text-sm text-clay">Chưa có điểm chấm công đang bật.</p>
+          <p className="mt-2 text-center text-sm text-clay">Chưa có điểm chấm công đang bật.</p>
         ) : null}
       </div>
 
-      <div className="space-y-2.5 px-5 md:px-8">
-        <div className="grid grid-cols-2 gap-2.5">
-          <div className="rounded-xl border border-line bg-card/60 px-3.5 py-3">
-            <p className="text-xs text-muted">Giờ vào</p>
-            <p className="font-display text-3xl font-semibold tabular-nums">{firstIn ? vnTime(firstIn.punchedAt) : "--:--"}</p>
-            <p className={`text-xs font-semibold ${!firstIn ? "text-muted" : inLate ? "text-clay" : "text-ok"}`}>{inNote}</p>
-          </div>
-          <div className="rounded-xl border border-line bg-card/60 px-3.5 py-3">
-            <p className="text-xs text-muted">Đã làm hôm nay</p>
-            <p className="font-display text-3xl font-semibold tabular-nums">{workedText}</p>
-            <p className={`text-xs font-semibold ${workedNote === "Đủ công" ? "text-ok" : "text-muted"}`}>{workedNote}</p>
+      <div className="mx-4 mt-6 grid grid-cols-2 gap-3 md:mx-8">
+        <div className="rounded-xl border border-line bg-card px-3.5 py-3">
+          <p className="text-xs text-muted">Giờ vào</p>
+          <p className="font-display text-3xl leading-tight font-bold tabular-nums text-ink">
+            {firstIn ? vnTime(firstIn.punchedAt) : "--:--"}
+          </p>
+          <p className={`text-xs font-semibold ${!firstIn ? "text-muted" : inLate ? "text-clay" : "text-ok"}`}>
+            {!firstIn ? "Chưa vào ca" : inLate ? `Muộn ${firstIn.lateMinutes} phút` : "Đúng giờ"}
+          </p>
+        </div>
+        <div className="rounded-xl border border-line bg-card px-3.5 py-3">
+          <p className="text-xs text-muted">Đã làm hôm nay</p>
+          <p className="font-display text-3xl leading-tight font-bold tabular-nums text-ink">
+            {Math.floor(worked / 60)}h {String(worked % 60).padStart(2, "0")}
+          </p>
+          <p
+            className={`text-xs font-semibold ${worked >= data.settings.fullDayMinutes ? "text-ok" : worked >= data.settings.halfDayMinutes ? "text-ice" : "text-muted"}`}
+          >
+            {worked >= data.settings.fullDayMinutes ? "Đủ công" : worked >= data.settings.halfDayMinutes ? "Đủ nửa công" : "Chưa đủ công"}
+          </p>
+        </div>
+      </div>
+
+      <div className="mx-4 mt-3 flex items-center gap-4 rounded-xl bg-ice px-4 py-3.5 text-night md:mx-8">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium">Công tháng {monthNo}</p>
+          <p className="font-display text-3xl leading-tight font-bold tabular-nums">
+            {congText(cong)} / {standard || "–"}
+          </p>
+          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-night/25">
+            <div className="h-full rounded-full bg-night" style={{ width: `${standard ? Math.min(100, (cong / standard) * 100) : 0}%` }} />
           </div>
         </div>
-        <div className="flex items-center justify-between gap-3 rounded-xl bg-ice px-3.5 py-3 text-[#2B1D12]">
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium">Ca làm hôm nay</p>
-            <p className="font-display text-3xl leading-tight font-bold tabular-nums">
-              {data.settings.workStart} – {data.settings.workEnd}
-            </p>
-            <div className="mt-1.5 h-1.5 rounded-full bg-[#2B1D12]/20">
-              <div className="h-full rounded-full bg-[#2B1D12]" style={{ width: `${shift.pct}%` }} />
-            </div>
-            <p className="mt-1 text-xs">{shift.note}</p>
-          </div>
-          <button type="button" onClick={() => onRequests?.()} className="min-h-11 shrink-0 rounded-lg bg-[#2B1D12] px-4 text-sm font-semibold text-ice">
-            Gửi đơn
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onGoRequests}
+          className="shrink-0 rounded-lg bg-night px-4 py-2.5 text-sm font-semibold text-ice"
+        >
+          Gửi đơn
+        </button>
       </div>
 
       <div className="space-y-3 px-4 pt-4">

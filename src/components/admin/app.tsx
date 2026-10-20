@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { CalendarDays, History, Inbox, LayoutDashboard, Settings2, Smartphone, Users } from "lucide-react";
+import { Smartphone } from "lucide-react";
 import { errorText } from "@/components/ui";
-import { UserButton } from "@/lib/auth/gates";
+import { signOut } from "@/lib/auth/client";
 import { getWorkspace, listCorrections, listLeaves } from "@/lib/attendance.functions";
 import type { CorrectionRow, LeaveRow, WorkspaceData } from "@/lib/attendance-types";
-import { todayLong } from "@/lib/vn-time";
 import { EmployeesView } from "./employees";
 import { HistoryView } from "./history";
 import { InboxView } from "./inbox";
@@ -30,6 +29,7 @@ export function AdminApp({ user, view, onView }: { user: AppUser; view: AdminVie
   const [corrections, setCorrections] = useState<CorrectionRow[]>([]);
   const [leaves, setLeaves] = useState<LeaveRow[]>([]);
   const [error, setError] = useState("");
+  const [signingOut, setSigningOut] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -82,35 +82,31 @@ export function AdminApp({ user, view, onView }: { user: AppUser; view: AdminVie
   }
 
   const pendingTotal = corrections.filter((c) => c.status === "pending").length + leaves.filter((l) => l.status === "pending").length + data.overtimePending.length;
-  const items: { id: AdminView; label: string; icon: ComponentType<{ className?: string }>; badge?: number }[] = [
-    { id: "overview", label: "Tổng quan", icon: LayoutDashboard },
-    { id: "inbox", label: "Cần duyệt", icon: Inbox, badge: pendingTotal },
-    { id: "month", label: "Bảng công", icon: CalendarDays },
-    { id: "history", label: "Lịch sử", icon: History },
+  const items: { id: AdminView; label: string; badge?: number }[] = [
+    { id: "overview", label: "Tổng quan" },
+    { id: "inbox", label: "Cần duyệt", badge: pendingTotal },
+    { id: "month", label: "Bảng công" },
   ];
   if (role === "admin") {
-    items.push({ id: "employees", label: "Nhân viên", icon: Users });
-    items.push({ id: "settings", label: "Cài đặt", icon: Settings2 });
+    items.push({ id: "employees", label: "Nhân viên" });
+    items.push({ id: "settings", label: "Cài đặt" });
   }
+  // Lịch sử không có trong thiết kế chốt; giữ ở cuối menu để không mất chức năng.
+  items.push({ id: "history", label: "Lịch sử" });
   const current = items.some((i) => i.id === view) ? view : "overview";
   const ctx: AdminCtx = { data, corrections, leaves, reload, go: onView };
 
   return (
     <div className="flex min-h-dvh flex-col bg-paper text-ink lg:flex-row">
-      <aside className="safe-top bg-[#1C130C] text-card lg:sticky lg:top-0 lg:flex lg:h-dvh lg:w-60 lg:shrink-0 lg:flex-col">
-        <div className="flex items-center justify-between px-5 pt-4 lg:block lg:pt-6">
-          <div className="flex items-center gap-3">
-            <img src="/punch-logo.png" alt="Đại Phát Furniture" className="size-12 rounded-full" />
-            <div>
-              <p className="font-display text-3xl leading-none font-bold">
-                Vào <span className="text-ice">Ca</span>
-              </p>
-              <p className="mt-1 truncate text-xs text-card/60">{data.companyName}</p>
-            </div>
+      <aside className="safe-top bg-night text-[#fff3d6] lg:sticky lg:top-0 lg:flex lg:h-dvh lg:w-52 lg:shrink-0 lg:flex-col">
+        <div className="flex items-center gap-3 px-4 pt-4 lg:pt-6">
+          <img src="/punch-logo-dark.png" alt="" className="size-11 shrink-0 rounded-full bg-night-deep object-cover ring-2 ring-ice" />
+          <div className="min-w-0">
+            <p className="font-display text-2xl leading-none font-bold">VÀO CA</p>
+            <p className="mt-1 truncate text-[0.7rem] font-semibold text-ice">{data.companyName}</p>
           </div>
-          <p className="text-xs font-semibold text-ice lg:mt-4">{role === "admin" ? "Quản trị" : "Người duyệt"}</p>
         </div>
-        <nav className="mt-3 flex gap-1 overflow-x-auto px-3 pb-3 lg:mt-8 lg:flex-1 lg:flex-col lg:overflow-visible lg:pb-0" aria-label="Quản trị">
+        <nav className="mt-3 flex gap-1 overflow-x-auto px-3 pb-3 lg:mt-7 lg:flex-1 lg:flex-col lg:overflow-visible lg:pb-0" aria-label="Quản trị">
           {items.map((item) => {
             const active = item.id === current;
             return (
@@ -119,42 +115,49 @@ export function AdminApp({ user, view, onView }: { user: AppUser; view: AdminVie
                 type="button"
                 onClick={() => onView(item.id)}
                 aria-current={active ? "page" : undefined}
-                className={`relative flex shrink-0 items-center gap-3 rounded-md px-3 py-2.5 text-sm font-semibold ${
-                  active ? "bg-ice text-ink" : "text-card/75 hover:bg-card/10"
+                className={`relative flex shrink-0 items-center gap-2.5 rounded-lg px-3.5 py-2.5 text-sm font-semibold ${
+                  active ? "bg-ice text-night" : "text-[#fff3d6]/85 hover:bg-white/10"
                 }`}
               >
-                <item.icon className="size-5" />
                 {item.label}
                 {item.badge ? (
-                  <span className={`ml-auto rounded-full px-2 text-xs ${active ? "bg-ink text-ice" : "bg-clay text-card"}`}>{item.badge}</span>
+                  <span className="ml-auto rounded-full bg-[#7a2e2a] px-2 py-px text-[0.7rem] font-bold text-[#fff3d6]">{item.badge}</span>
                 ) : null}
               </button>
             );
           })}
         </nav>
-        <div className="hidden px-5 pb-6 lg:block">
-          <Link to="/" className="flex items-center gap-2 text-sm text-card/70 hover:text-card">
-            <Smartphone className="size-4" /> Mở bản chấm công
-          </Link>
+        <div className="hidden border-t border-white/10 px-4 py-4 lg:block">
+          <p className="truncate text-xs font-semibold">
+            {role === "admin" ? "Quản trị" : "Người duyệt"} · {data.profile.fullName}
+          </p>
+          <div className="mt-2 flex items-center gap-3 text-xs text-[#fff3d6]/70">
+            <Link to="/" className="inline-flex items-center gap-1 hover:text-[#fff3d6]">
+              <Smartphone className="size-3.5" /> Bản chấm công
+            </Link>
+            <button
+              type="button"
+              disabled={signingOut}
+              className="hover:text-[#fff3d6]"
+              onClick={() => {
+                setSigningOut(true);
+                void signOut().catch(() => setSigningOut(false));
+              }}
+            >
+              {signingOut ? "Đang thoát…" : "Đăng xuất"}
+            </button>
+          </div>
         </div>
       </aside>
-      <div className="min-w-0 flex-1">
-        <header className="flex items-center justify-between gap-3 border-b-2 border-ink bg-card px-5 py-3 lg:px-8">
-          <p className="text-sm text-muted">{todayLong()}</p>
-          <div className="account-compact shrink-0">
-            <UserButton />
-          </div>
-        </header>
-        <main className="p-4 lg:p-8">
-          {error ? <p className="mb-4 text-sm text-clay">{error}</p> : null}
-          {current === "overview" ? <OverviewView ctx={ctx} /> : null}
-          {current === "inbox" ? <InboxView ctx={ctx} /> : null}
-          {current === "month" ? <MonthView ctx={ctx} /> : null}
-          {current === "history" ? <HistoryView ctx={ctx} /> : null}
-          {current === "employees" ? <EmployeesView ctx={ctx} /> : null}
-          {current === "settings" ? <SettingsView ctx={ctx} /> : null}
-        </main>
-      </div>
+      <main className="min-w-0 flex-1 p-4 lg:p-6">
+        {error ? <p className="mb-4 text-sm text-clay">{error}</p> : null}
+        {current === "overview" ? <OverviewView ctx={ctx} /> : null}
+        {current === "inbox" ? <InboxView ctx={ctx} /> : null}
+        {current === "month" ? <MonthView ctx={ctx} /> : null}
+        {current === "history" ? <HistoryView ctx={ctx} /> : null}
+        {current === "employees" ? <EmployeesView ctx={ctx} /> : null}
+        {current === "settings" ? <SettingsView ctx={ctx} /> : null}
+      </main>
     </div>
   );
 }

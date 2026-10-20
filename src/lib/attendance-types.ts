@@ -86,6 +86,10 @@ export type PersonRow = {
   role: Role;
   lastType: "in" | "out" | null;
   lastAt: string | null;
+  /** Giờ vào đầu tiên trong ngày hôm nay (null nếu chưa vào). */
+  firstInAt?: string | null;
+  /** Số phút đi muộn của lần vào đầu tiên hôm nay. */
+  firstInLate?: number;
   employeeCode?: string | null;
   department?: string | null;
   jobTitle?: string | null;
@@ -119,6 +123,15 @@ export type WorkspaceData = {
   offsiteToday: PunchRow[];
   lateToday: PunchRow[];
   overtimePending: PunchRow[];
+};
+
+/** Công tích lũy của chính người dùng trong tháng, hiện ở thẻ "Công tháng" trên điện thoại. */
+export type MySummary = {
+  month: string;
+  /** Tổng công đã tính (ngày đang làm dở chưa tính). */
+  cong: number;
+  /** Số ngày công chuẩn của tháng (trừ Chủ nhật và ngày lễ). */
+  standardDays: number;
 };
 
 export type PunchResult =

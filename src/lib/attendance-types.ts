@@ -1,4 +1,4 @@
-import type { MonthPunch } from "./month-grid";
+import type { MonthPunch, Schedule } from "./month-grid";
 
 export type OvertimeStatus = "none" | "pending" | "approved" | "rejected";
 
@@ -7,6 +7,11 @@ export type Role = "employee" | "approver" | "admin";
 export type Settings = {
   workStart: string;
   workEnd: string;
+  /** Giờ nghỉ trưa (không tính vào giờ làm). */
+  lunchStart: string;
+  lunchEnd: string;
+  /** Ra muộn từ số phút này trở lên thì mới tính tăng ca. */
+  overtimeMinMinutes: number;
   lateMinutes: number;
   /** Làm từ số phút này thì tính 1 công. */
   fullDayMinutes: number;
@@ -220,3 +225,7 @@ export type MonthGrid = {
   leaves?: Record<string, Record<string, string>>;
   lock: { lockedAt: string; lockedByName: string } | null;
 };
+
+export function scheduleOf(s: Settings): Schedule {
+  return { start: s.workStart, end: s.workEnd, lunchStart: s.lunchStart, lunchEnd: s.lunchEnd };
+}

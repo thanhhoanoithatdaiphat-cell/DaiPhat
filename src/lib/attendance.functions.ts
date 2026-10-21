@@ -31,15 +31,17 @@ import {
   workedMinutes as sumWorked,
   type MonthPunch,
 } from "@/lib/month-grid";
-import { HISTORY_MAX_DAYS } from "@/lib/attendance-types";
+import { HISTORY_MAX_DAYS, scheduleOf } from "@/lib/attendance-types";
 
 const COMPANY_ID = "co-default";
 const PHOTO_MAX = 180_000;
-const OT_ALERT_MINUTES = 60;
 
 const DEFAULT_SETTINGS: Settings = {
   workStart: "07:30",
   workEnd: "17:30",
+  lunchStart: "11:30",
+  lunchEnd: "13:30",
+  overtimeMinMinutes: 30,
   lateMinutes: 5,
   fullDayMinutes: 420,
   halfDayMinutes: 240,
@@ -104,6 +106,8 @@ function readSettings(raw: unknown): Settings {
   return {
     workStart: isHm(obj.workStart) ? obj.workStart : DEFAULT_SETTINGS.workStart,
     workEnd: isHm(obj.workEnd) ? obj.workEnd : DEFAULT_SETTINGS.workEnd,
+    ...readLunch(obj),
+    overtimeMinMinutes: clampNum(obj.overtimeMinMinutes, 0, 240, DEFAULT_SETTINGS.overtimeMinMinutes),
     lateMinutes: clampNum(obj.lateMinutes, 0, 180, DEFAULT_SETTINGS.lateMinutes),
     ...readDayThresholds(obj),
     maxCorrections: clampNum(obj.maxCorrections, 0, 20, DEFAULT_SETTINGS.maxCorrections),
@@ -114,6 +118,12 @@ function readSettings(raw: unknown): Settings {
     requirePhoto: obj.requirePhoto !== false,
     allowOffsite: obj.allowOffsite === true,
   };
+}
+
+function readLunch(obj: Record<string, unknown>): { lunchStart: string; lunchEnd: string } {
+  const start = isHm(obj.lunchStart) ? obj.lunchStart : DEFAULT_SETTINGS.lunchStart;
+  const end = isHm(obj.lunchEnd) ? obj.lunchEnd : DEFAULT_SETTINGS.lunchEnd;
+  return hmToMinutes(start) < hmToMinutes(end) ? { lunchStart: start, lunchEnd: end } : { lunchStart: DEFAULT_SETTINGS.lunchStart, lunchEnd: DEFAULT_SETTINGS.lunchEnd };
 }
 
 function readDayThresholds(obj: Record<string, unknown>): { fullDayMinutes: number; halfDayMinutes: number } {
@@ -593,6 +603,7 @@ export const getMySummary = createServerFn({ method: "POST" })
         hasApprovedLeave: leaves.has(dateKey),
         leaveKind: leaves.get(dateKey) ?? null,
         lateThreshold: settings.lateMinutes,
+        schedule: scheduleOf(settings),
         fullDayMinutes: settings.fullDayMinutes,
         halfDayMinutes: settings.halfDayMinutes,
         hm: (iso) => minutesToHm(vnMinutes(iso)),
@@ -766,17 +777,12 @@ export const punch = createServerFn({ method: "POST" })
             and punched_at < ${todayBounds.end}::timestamptz
           order by punched_at asc
         `;
-        let openIn: number | null = null;
-        let minutes = 0;
-        for (const row of todayRows) {
-          const at = new Date(stamp(row.punched_at)).getTime();
-          if (row.type === "in") openIn = at;
-          else if (openIn != null) {
-            minutes += Math.max(0, (at - openIn) / 60000);
-            openIn = null;
-          }
-        }
-        if (openIn != null) minutes += Math.max(0, (new Date(punchedAt).getTime() - openIn) / 60000);
+        const points = [
+          ...todayRows.map((row) => ({ type: row.type, at: stamp(row.punched_at) })),
+          { type: "out" as const, at: punchedAt },
+        ];
+        // Chủ nhật/lễ: cả buổi làm là tăng ca, trừ giờ nghỉ trưa
+        const minutes = sumWorked(points, { schedule: scheduleOf(settings), clip: false });
         overtimeMinutes = Math.round(minutes);
         overtimeStatus = overtimeMinutes > 0 ? "pending" : "none";
       }
@@ -785,7 +791,7 @@ export const punch = createServerFn({ method: "POST" })
         lateMinutes = Math.max(0, clock - hmToMinutes(settings.workStart));
       }
       overtimeMinutes = data.type === "out" ? Math.max(0, clock - hmToMinutes(settings.workEnd)) : 0;
-      overtimeStatus = overtimeMinutes >= OT_ALERT_MINUTES ? "pending" : "none";
+      overtimeStatus = overtimeMinutes >= settings.overtimeMinMinutes ? "pending" : "none";
     }
     // Recheck ngay trước khi insert để giảm race condition (hai tab bấm cùng lúc)
     const recheck = await sql<{ type: "in" | "out" }>`
@@ -1027,7 +1033,7 @@ export const reviewCorrection = createServerFn({ method: "POST" })
       }
       if (!sunday && row.punch_type === "out") {
         overtimeMinutes = Math.max(0, clock - hmToMinutes(settings.workEnd));
-        overtimeStatus = overtimeMinutes >= OT_ALERT_MINUTES ? "pending" : "none";
+        overtimeStatus = overtimeMinutes >= settings.overtimeMinMinutes ? "pending" : "none";
       }
       await sql`
         insert into attendances (
@@ -1221,18 +1227,11 @@ export const exportTimesheet = createServerFn({ method: "POST" })
     for (const bucket of sorted) {
       const firstIn = bucket.punches.find((punch) => punch.type === "in");
       const lastOut = [...bucket.punches].reverse().find((punch) => punch.type === "out");
-      // Cộng từng đoạn vào–ra (giống màn nhân viên), không tính giờ nghỉ trưa
-      let worked = 0;
-      let openIn: number | null = null;
-      for (const p of bucket.punches) {
-        const t = new Date(p.at).getTime();
-        if (p.type === "in") openIn = t;
-        else if (openIn != null) {
-          worked += Math.max(0, (t - openIn) / 60000);
-          openIn = null;
-        }
-      }
-      const hours = worked > 0 ? minutesToHm(Math.round(worked)) : "";
+      const isHoliday = holidaySet.has(bucket.day);
+      const isSunday = !isHoliday && vnWeekday(bucket.day) === 0;
+      // Giờ làm: trừ nghỉ trưa; ngày thường chỉ tính trong khung giờ ca (ra muộn là tăng ca, tính riêng)
+      const workedDay = sumWorked(bucket.punches, { schedule: scheduleOf(settings), clip: !isHoliday && !isSunday });
+      const hours = workedDay > 0 ? minutesToHm(workedDay) : "";
       const lateMinutes = firstIn?.lateMinutes ?? 0;
       const overtimeMinutes = lastOut?.overtimeMinutes ?? 0;
       const overtimeStatus = lastOut?.overtimeStatus ?? "none";
@@ -1242,9 +1241,7 @@ export const exportTimesheet = createServerFn({ method: "POST" })
       const offsite = bucket.punches.some((punch) => punch.offsite) ? "Có" : "Không";
       const missingOut = firstIn && !lastOut ? "Có" : "Không";
       const openToday = bucket.day === vnDateKey() && firstIn && !lastOut;
-      const congDay = openToday ? null : congOf(sumWorked(bucket.punches), settings.fullDayMinutes, settings.halfDayMinutes);
-      const isHoliday = holidaySet.has(bucket.day);
-      const isSunday = !isHoliday && vnWeekday(bucket.day) === 0;
+      const congDay = openToday ? null : congOf(workedDay, settings.fullDayMinutes, settings.halfDayMinutes);
       const rate = isHoliday ? settings.holidayRate : isSunday ? settings.sundayRate : 1;
       // Chủ nhật/lễ chỉ được nhân hệ số khi tăng ca đã duyệt; chưa duyệt thì chưa tính.
       const converted =

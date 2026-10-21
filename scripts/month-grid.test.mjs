@@ -104,3 +104,19 @@ test("workedMinutes cộng từng đoạn vào–ra, bỏ nghỉ trưa", () => {
   ]);
   assert.equal(mins, 480);
 });
+
+test("giờ làm trừ nghỉ trưa, vào sớm/ra muộn không cộng thêm trong ngày thường", () => {
+  const sc = { start: "07:30", end: "17:30", lunchStart: "11:30", lunchEnd: "13:30" };
+  const d = "2026-10-12"; // giờ VN = UTC + 7
+  const at = (hm) => { const [h, m] = hm.split(":").map(Number); return new Date(Date.UTC(2026, 9, 12, h - 7, m)).toISOString(); };
+  const pair = (a, b) => [p("in", at(a)), p("out", at(b))];
+  assert.equal(workedMinutes(pair("07:30", "17:30"), { schedule: sc, clip: true }), 480);
+  assert.equal(workedMinutes(pair("07:00", "18:15"), { schedule: sc, clip: true }), 480); // vào sớm, ra muộn: tăng ca tính riêng
+  assert.equal(workedMinutes(pair("07:50", "17:30"), { schedule: sc, clip: true }), 460);
+  assert.equal(workedMinutes(pair("07:30", "11:30"), { schedule: sc, clip: true }), 240); // chỉ làm buổi sáng
+  assert.equal(workedMinutes(pair("07:00", "18:00"), { schedule: sc, clip: false }), 540); // Chủ nhật/lễ: cả buổi trừ nghỉ trưa
+  assert.equal(workedMinutes(pair("07:30", "17:30")), 600); // không có lịch: cộng thẳng như cũ
+  const c = cell(d, pair("07:30", "17:30"), { schedule: sc });
+  assert.equal(c.workedMinutes, 480);
+  assert.equal(c.cong, 1);
+});

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { AlertTriangle, ChevronLeft, ChevronRight, Download, Lock, LockOpen, Search, X } from "lucide-react";
 import { errorText } from "@/components/ui";
 import { exportTimesheet, getMonthGrid, lockMonth } from "@/lib/attendance.functions";
-import type { MonthGrid } from "@/lib/attendance-types";
+import { scheduleOf, type MonthGrid } from "@/lib/attendance-types";
 import { buildCell, monthDayKeys, summarize, weekdayOf, type CellKind, type DayCell } from "@/lib/month-grid";
 import { formatMeters, formatMonthLabel, formatVnDay, minutesToHm, shiftMonth, vnDateKey, vnMonthKey, vnTime } from "@/lib/vn-time";
 import type { AdminCtx } from "./app";
@@ -79,6 +79,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
           hasApprovedLeave: !!grid.leaves?.[p.userId]?.[d],
           leaveKind: grid.leaves?.[p.userId]?.[d] ?? null,
           lateThreshold: data.settings.lateMinutes,
+          schedule: scheduleOf(data.settings),
           fullDayMinutes: data.settings.fullDayMinutes,
           halfDayMinutes: data.settings.halfDayMinutes,
           hm: vnTime,
@@ -86,7 +87,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
       );
       return { person: p, cells, sum: summarize(cells, rates) };
     });
-  }, [grid, days, rates, data.settings.lateMinutes, data.settings.fullDayMinutes, data.settings.halfDayMinutes]);
+  }, [grid, days, rates, data.settings]);
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return all

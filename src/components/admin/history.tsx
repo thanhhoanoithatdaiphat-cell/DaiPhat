@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Download, Lock, Search, X } from "lucide-rea
 import { errorText } from "@/components/ui";
 import { getHistory, listAudit } from "@/lib/attendance.functions";
 import { HISTORY_MAX_DAYS, type AuditEvent, type HistoryData } from "@/lib/attendance-types";
+import { scheduleOf } from "@/lib/attendance-types";
 import { buildCell, summarize, weekdayOf, type CellKind, type DayCell } from "@/lib/month-grid";
 import { formatMeters, minutesToHm, nextDateKey, vnDateKey, vnTime } from "@/lib/vn-time";
 import type { AdminCtx } from "./app";
@@ -183,6 +184,7 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
           hasApprovedLeave: !!hist.leaves[p.userId]?.[d],
           leaveKind: hist.leaves[p.userId]?.[d] ?? null,
           lateThreshold: data.settings.lateMinutes,
+          schedule: scheduleOf(data.settings),
           fullDayMinutes: data.settings.fullDayMinutes,
           halfDayMinutes: data.settings.halfDayMinutes,
           hm: vnTime,
@@ -204,7 +206,7 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
       }
     }
     return out;
-  }, [hist, data.settings.lateMinutes, data.settings.fullDayMinutes, data.settings.halfDayMinutes]);
+  }, [hist, data.settings]);
 
   const punchRows = useMemo<PunchRowX[]>(() => {
     if (!hist) return [];

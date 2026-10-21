@@ -23,16 +23,57 @@ export type CellKind = "ok" | "late" | "partial" | "absent" | "off" | "future";
 export const DEFAULT_FULL_DAY_MINUTES = 420;
 export const DEFAULT_HALF_DAY_MINUTES = 240;
 
-/** Cộng từng đoạn vào–ra trong ngày (đoạn chưa ra ca không tính). */
-export function workedMinutes(punches: { type: "in" | "out"; at: string }[]): number {
+/** Lịch làm việc một ca có nghỉ trưa: sáng start–lunchStart, chiều lunchEnd–end. */
+export type Schedule = { start: string; end: string; lunchStart: string; lunchEnd: string };
+
+export const DEFAULT_SCHEDULE: Schedule = { start: "07:30", end: "17:30", lunchStart: "11:30", lunchEnd: "13:30" };
+
+const VN_OFFSET_MIN = 7 * 60;
+
+function hmToMin(hm: string): number {
+  const [h, m] = hm.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+/** Mốc 0h (giờ Việt Nam) của ngày chứa thời điểm ms, tính bằng ms. */
+function vnDayStartMs(ms: number): number {
+  const shifted = ms + VN_OFFSET_MIN * 60000;
+  return Math.floor(shifted / 86400000) * 86400000 - VN_OFFSET_MIN * 60000;
+}
+
+/**
+ * Cộng từng đoạn vào–ra trong ngày (đoạn chưa ra ca không tính).
+ * Có `schedule`: trừ giờ nghỉ trưa; với `clip` (ngày thường) chỉ tính trong khung giờ ca,
+ * vào sớm hoặc ra muộn không cộng thêm (phần ra muộn được tính riêng là tăng ca).
+ */
+export function workedMinutes(
+  punches: { type: "in" | "out"; at: string }[],
+  opts: { schedule?: Schedule; clip?: boolean } = {},
+): number {
   const sorted = [...punches].sort((a, b) => a.at.localeCompare(b.at));
   let total = 0;
   let openIn: number | null = null;
+  const pair = (from: number, to: number) => {
+    const sc = opts.schedule;
+    if (!sc) return Math.max(0, (to - from) / 60000);
+    const day = vnDayStartMs(from);
+    let a = from;
+    let b = to;
+    if (opts.clip) {
+      a = Math.max(a, day + hmToMin(sc.start) * 60000);
+      b = Math.min(b, day + hmToMin(sc.end) * 60000);
+    }
+    if (b <= a) return 0;
+    const ls = day + hmToMin(sc.lunchStart) * 60000;
+    const le = day + hmToMin(sc.lunchEnd) * 60000;
+    const lunch = Math.max(0, Math.min(b, le) - Math.max(a, ls));
+    return (b - a - lunch) / 60000;
+  };
   for (const p of sorted) {
     const t = new Date(p.at).getTime();
     if (p.type === "in") openIn = t;
     else if (openIn != null) {
-      total += Math.max(0, (t - openIn) / 60000);
+      total += pair(openIn, t);
       openIn = null;
     }
   }
@@ -87,6 +128,8 @@ export function buildCell(input: {
   leaveKind?: string | null;
   /** Ngưỡng đi muộn của công ty (phút). Muộn khi số phút >= ngưỡng, giống các màn khác. */
   lateThreshold: number;
+  /** Lịch ca có nghỉ trưa; bỏ trống thì cộng thẳng giờ vào–ra như trước. */
+  schedule?: Schedule;
   fullDayMinutes?: number;
   halfDayMinutes?: number;
   hm: (iso: string) => string;
@@ -121,7 +164,7 @@ export function buildCell(input: {
   const sorted = [...punches].sort((a, b) => a.at.localeCompare(b.at));
   const first = sorted.find((p) => p.type === "in") ?? null;
   const last = [...sorted].reverse().find((p) => p.type === "out") ?? null;
-  const worked = workedMinutes(sorted);
+  const worked = workedMinutes(sorted, { schedule: input.schedule, clip: input.schedule ? dayType === "normal" : false });
   const cell = {
     dayType,
     workedMinutes: worked,

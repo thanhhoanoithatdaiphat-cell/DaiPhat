@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ChevronLeft, ChevronRight, MapPin } from "lucide-react";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
+import { workedMinutes } from "@/lib/month-grid";
 import { CameraSheet } from "@/components/camera-sheet";
 import { errorText, fieldClass, primaryBtn, secondaryBtn } from "@/components/ui";
 import { InviteCodeCard } from "@/components/invite-card";
@@ -37,6 +38,7 @@ import type {
   Settings,
   WorkspaceData,
 } from "@/lib/attendance-types";
+import { scheduleOf } from "@/lib/attendance-types";
 import {
   formatMeters,
   formatMonthLabel,
@@ -146,20 +148,12 @@ function useGeoWatch(): GeoState {
   return geo;
 }
 
-function liveWorkedMinutes(rows: PunchRow[], nowMs: number): number {
-  const sorted = [...rows].sort((a, b) => a.punchedAt.localeCompare(b.punchedAt));
-  let total = 0;
-  let openIn: number | null = null;
-  for (const row of sorted) {
-    const t = new Date(row.punchedAt).getTime();
-    if (row.type === "in") openIn = t;
-    else if (openIn != null) {
-      total += Math.max(0, t - openIn) / 60000;
-      openIn = null;
-    }
-  }
-  if (openIn != null) total += Math.max(0, nowMs - openIn) / 60000;
-  return Math.floor(total);
+function liveWorkedMinutes(rows: PunchRow[], nowMs: number, settings: Settings): number {
+  const points: { type: "in" | "out"; at: string }[] = rows.map((r) => ({ type: r.type, at: r.punchedAt }));
+  const last = rows[rows.length - 1];
+  // Đang trong ca: tính tạm đến giờ hiện tại
+  if (last?.type === "in") points.push({ type: "out", at: new Date(nowMs).toISOString() });
+  return workedMinutes(points, { schedule: scheduleOf(settings), clip: vnWeekday() !== 0 });
 }
 
 function dateLine(): string {
@@ -209,7 +203,7 @@ export function PunchPanel({
   }, [data.today.length]);
   const nowMs = Date.now();
   const firstIn = data.today.find((row) => row.type === "in") ?? null;
-  const worked = liveWorkedMinutes(data.today, nowMs);
+  const worked = liveWorkedMinutes(data.today, nowMs, data.settings);
   const inLate = firstIn ? isLate(firstIn.lateMinutes, data.settings.lateMinutes) : false;
   const nearest = (() => {
     if (geo.status !== "ok" || active.length === 0) return null;
@@ -356,7 +350,7 @@ export function PunchPanel({
           {clock.time.slice(0, 5)}
         </p>
         <p className="pz-hide-compact mt-1 text-xs text-muted">
-          Ca ngày · {data.settings.workStart} – {data.settings.workEnd}
+          Ca ngày · {data.settings.workStart} – {data.settings.workEnd} · nghỉ trưa {data.settings.lunchStart}–{data.settings.lunchEnd}
         </p>
       </div>
 
@@ -766,7 +760,7 @@ function dayStory(items: PunchRow[], settings: Settings): { late: string; overti
   if (lastOut.overtimeStatus === "approved") return { late, overtime: `Tăng ca ${hours} · đã tính`, onTime: !isLate(firstIn?.lateMinutes ?? 0, settings.lateMinutes) };
   if (lastOut.overtimeStatus === "pending") return { late, overtime: `Tăng ca ${hours} · chờ duyệt`, onTime: !isLate(firstIn?.lateMinutes ?? 0, settings.lateMinutes) };
   if (lastOut.overtimeStatus === "rejected") return { late, overtime: `Tăng ca ${hours} · không tính`, onTime: !isLate(firstIn?.lateMinutes ?? 0, settings.lateMinutes) };
-  return { late, overtime: `Tăng ca ${hours} · dưới 1 giờ`, onTime: !isLate(firstIn?.lateMinutes ?? 0, settings.lateMinutes) };
+  return { late, overtime: `Tăng ca ${hours} · chưa đủ ${settings.overtimeMinMinutes} phút, không tính`, onTime: !isLate(firstIn?.lateMinutes ?? 0, settings.lateMinutes) };
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -1584,6 +1578,21 @@ export function SettingsForm({ data, onChanged }: { data: WorkspaceData; onChang
         </label>
       </div>
       <div className="grid grid-cols-2 gap-3">
+        <label className="space-y-1 text-sm">
+          Nghỉ trưa từ
+          <input className={fieldClass} type="time" value={settings.lunchStart} onChange={(e) => setSettings({ ...settings, lunchStart: e.target.value })} />
+        </label>
+        <label className="space-y-1 text-sm">
+          Nghỉ trưa đến
+          <input className={fieldClass} type="time" value={settings.lunchEnd} onChange={(e) => setSettings({ ...settings, lunchEnd: e.target.value })} />
+        </label>
+      </div>
+      <p className="text-xs text-muted">Nhân viên chỉ chấm 2 lần: vào đầu ca và ra cuối ca. Giờ làm = từ giờ vào đến giờ ra, trừ nghỉ trưa (ca 07:30–17:30 nghỉ 11:30–13:30 là 8 giờ).</p>
+      <div className="grid grid-cols-3 gap-3">
+        <label className="space-y-1 text-sm">
+          Tăng ca tính từ (phút)
+          <input className={fieldClass} type="number" min={0} max={240} value={settings.overtimeMinMinutes} onChange={(e) => setSettings({ ...settings, overtimeMinMinutes: Number(e.target.value) })} />
+        </label>
         <label className="space-y-1 text-sm">
           Báo muộn từ (phút)
           <input className={fieldClass} type="number" min={0} max={180} value={settings.lateMinutes} onChange={(e) => setSettings({ ...settings, lateMinutes: Number(e.target.value) })} />

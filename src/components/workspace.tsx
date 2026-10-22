@@ -79,7 +79,7 @@ export function Workspace({ user }: { user: AppUser }) {
         <main className="min-h-0 flex-1 overflow-y-auto">
           {error ? <p className="px-4 pt-4 text-sm text-clay">{error}</p> : null}
           {!data && !error ? <p className="px-5 pt-8 text-sm text-muted">Đang mở bảng công…</p> : null}
-          {data && punching ? <PunchPanel data={data} onChanged={load} onGoRequests={() => setTab("requests")} /> : null}
+          {data && punching ? <PunchPanel data={data} onChanged={load} onGoRequests={() => setTab("requests")} onGoHistory={() => setTab("history")} /> : null}
           {data && tab === "history" ? (
             <div className="px-4 py-4">
               <HistoryPanel settings={data.settings} />

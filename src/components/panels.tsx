@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, MapPin } from "lucide-react";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
 import { workedMinutes } from "@/lib/month-grid";
 import { CameraSheet } from "@/components/camera-sheet";
+import { PunchSuccessDialog, type PunchCelebration } from "@/components/punch-success";
 import { errorText, fieldClass, primaryBtn, secondaryBtn } from "@/components/ui";
 import { InviteCodeCard } from "@/components/invite-card";
 import {
@@ -170,11 +171,14 @@ export function PunchPanel({
   data,
   onChanged,
   onGoRequests,
+  onGoHistory,
 }: {
   data: WorkspaceData;
   onChanged: () => Promise<void>;
   onGoRequests: () => void;
+  onGoHistory?: () => void;
 }) {
+  const [celebration, setCelebration] = useState<PunchCelebration | null>(null);
   const [cameraFor, setCameraFor] = useState<"in" | "out" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -237,6 +241,7 @@ export function PunchPanel({
       setGeoFailed(null);
       setPendingPhoto("");
       if (next.ok) await onChanged();
+      setCelebration({ type, result: next, photo });
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -436,6 +441,16 @@ export function PunchPanel({
           Gửi đơn
         </button>
       </div>
+
+      {celebration ? (
+        <PunchSuccessDialog
+          celebration={celebration}
+          settings={data.settings}
+          workedMinutes={worked}
+          onClose={() => setCelebration(null)}
+          onDetail={onGoHistory}
+        />
+      ) : null}
 
       {cameraFor ? (
         <CameraSheet

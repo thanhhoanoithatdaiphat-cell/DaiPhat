@@ -124,7 +124,7 @@ export function Workspace({ user }: { user: AppUser }) {
           {data && tab === "manage" ? (
             <div className="px-4 py-4">
               <BackToProfile onClick={() => setTab("profile")} />
-              <ManagePanel data={data} onChanged={load} />
+              <ManagePanel data={data} onChanged={load} onGoRequests={() => setTab("requests")} />
             </div>
           ) : null}
         </main>

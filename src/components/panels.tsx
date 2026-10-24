@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ChevronLeft, ChevronRight, MapPin } from "lucide-react";
+import { AlarmClock, ChevronLeft, ChevronRight, ClipboardList, Hourglass, MapPin, MapPinOff } from "lucide-react";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
 import { workedMinutes } from "@/lib/month-grid";
 import { CameraSheet } from "@/components/camera-sheet";
 import { PunchSuccessDialog, type PunchCelebration } from "@/components/punch-success";
 import { errorText, fieldClass, primaryBtn, secondaryBtn } from "@/components/ui";
 import { InviteCodeCard } from "@/components/invite-card";
+import { AlertCard, CountTile, DetailPage } from "@/components/manage-ui";
 import {
   createCorrection,
   createLeaveRequest,
@@ -1284,16 +1285,129 @@ function RankList({ title, rows, empty }: { title: string; rows: { id: string; l
   );
 }
 
-export function ManagePanel({ data, onChanged }: { data: WorkspaceData; onChanged: () => Promise<void> }) {
+type SheetKey = "overtime" | "late" | "offsite" | "inside" | "left" | "missing";
+
+/** "Lan, Hùng +2": tên gọi (từ cuối) của vài người đầu. */
+function namesHint(names: (string | undefined)[]): string {
+  const uniq = [...new Set(names.filter((n): n is string => Boolean(n)))];
+  if (uniq.length === 0) return "";
+  const short = uniq.slice(0, 2).map((n) => n.trim().split(/\s+/).pop() ?? n);
+  return short.join(", ") + (uniq.length > 2 ? ` +${uniq.length - 2}` : "");
+}
+
+export function ManagePanel({
+  data,
+  onChanged,
+  onGoRequests,
+}: {
+  data: WorkspaceData;
+  onChanged: () => Promise<void>;
+  onGoRequests?: () => void;
+}) {
   const isAdmin = data.profile.role === "admin";
+  const [sheet, setSheet] = useState<SheetKey | null>(null);
   const lateIds = new Set(data.lateToday.map((row) => row.userId).filter((id): id is string => Boolean(id)));
+  const people = data.teamToday;
+  const inside = people.filter((person) => person.lastType === "in");
+  const left = people.filter((person) => person.lastType === "out");
+  const missing = people.filter((person) => !person.lastAt);
+  const lateRows = [...data.lateToday].sort((a, b) => b.lateMinutes - a.lateMinutes);
+  const otTotal = data.overtimePending.reduce((sum, row) => sum + row.overtimeMinutes, 0);
+  const showOffsite = data.settings.allowOffsite || data.offsiteToday.length > 0;
+  const attention = data.lateToday.length + data.overtimePending.length + data.offsiteToday.length + data.pendingCount;
+  const closeSheet = () => setSheet(null);
+
   return (
     <div className="space-y-5">
-      <DayBoard data={data} />
-      <TeamBoard people={data.teamToday} lateIds={lateIds} />
-      <LateReport rows={data.lateToday} fromMinutes={data.settings.lateMinutes} />
-      <OvertimeQueue rows={data.overtimePending} onChanged={onChanged} />
-      {data.settings.allowOffsite || data.offsiteToday.length > 0 ? <OffsiteReport rows={data.offsiteToday} /> : null}
+      <section className="space-y-3">
+        <div>
+          <p className="text-sm text-muted">Hôm nay</p>
+          <h2 className="font-display text-4xl font-semibold">{isAdmin ? "Bảng quản trị" : "Bảng đội"}</h2>
+        </div>
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">Cần xử lý</h3>
+          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums ${attention > 0 ? "bg-clay/15 text-clay" : "bg-ok/15 text-ok"}`}>
+            {attention > 0 ? `${attention} việc` : "Đã xong hết"}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2.5">
+          <AlertCard
+            icon={Hourglass}
+            tone="gold"
+            label="Tăng ca"
+            count={data.overtimePending.length}
+            hint={`Chờ duyệt · ${minutesToHm(otTotal)}`}
+            onClick={() => setSheet("overtime")}
+          />
+          <AlertCard
+            icon={ClipboardList}
+            tone="gold"
+            label="Đơn"
+            count={data.pendingCount}
+            hint="Sửa công, nghỉ phép"
+            onClick={onGoRequests}
+          />
+          <AlertCard
+            icon={AlarmClock}
+            tone="clay"
+            label="Đi muộn"
+            count={data.lateToday.length}
+            hint={namesHint(lateRows.map((row) => row.fullName))}
+            onClick={() => setSheet("late")}
+          />
+          {showOffsite ? (
+            <AlertCard
+              icon={MapPinOff}
+              tone="gold"
+              label="Chấm ngoài"
+              count={data.offsiteToday.length}
+              hint={namesHint(data.offsiteToday.map((row) => row.fullName))}
+              onClick={() => setSheet("offsite")}
+            />
+          ) : null}
+        </div>
+      </section>
+
+      <section className="space-y-2.5">
+        <h3 className="font-semibold">Đội hôm nay</h3>
+        <div className="grid grid-cols-3 gap-2.5">
+          <CountTile label="Trong ca" count={inside.length} onClick={() => setSheet("inside")} />
+          <CountTile label="Đã ra" count={left.length} tone="ok" onClick={() => setSheet("left")} />
+          <CountTile label="Chưa chấm" count={missing.length} tone={missing.length > 0 ? "clay" : "ink"} onClick={() => setSheet("missing")} />
+        </div>
+      </section>
+
+      {sheet === "overtime" ? (
+        <DetailPage title="Tăng ca chờ duyệt" subtitle={data.companyName} count={data.overtimePending.length} onClose={closeSheet}>
+          <OvertimeQueue rows={data.overtimePending} onChanged={onChanged} hideTitle />
+        </DetailPage>
+      ) : null}
+      {sheet === "late" ? (
+        <DetailPage title="Đi muộn hôm nay" subtitle={data.companyName} count={lateRows.length} onClose={closeSheet}>
+          <LateReport rows={lateRows} fromMinutes={data.settings.lateMinutes} hideTitle />
+        </DetailPage>
+      ) : null}
+      {sheet === "offsite" ? (
+        <DetailPage title="Chấm ngoài điểm" subtitle={data.companyName} count={data.offsiteToday.length} onClose={closeSheet}>
+          <OffsiteReport rows={data.offsiteToday} hideTitle />
+        </DetailPage>
+      ) : null}
+      {sheet === "inside" ? (
+        <DetailPage title="Đang trong ca" subtitle={data.companyName} count={inside.length} onClose={closeSheet}>
+          <PersonGroup title="Đang trong ca" people={inside} lateIds={lateIds} empty="Chưa ai đang trong ca." hideTitle />
+        </DetailPage>
+      ) : null}
+      {sheet === "left" ? (
+        <DetailPage title="Đã ra ca" subtitle={data.companyName} count={left.length} onClose={closeSheet}>
+          <PersonGroup title="Đã ra" people={left} lateIds={lateIds} empty="Chưa ai ra ca." hideTitle />
+        </DetailPage>
+      ) : null}
+      {sheet === "missing" ? (
+        <DetailPage title="Chưa chấm công" subtitle={data.companyName} count={missing.length} onClose={closeSheet}>
+          <PersonGroup title="Chưa chấm" people={missing} lateIds={lateIds} empty="Mọi người đã chấm." hideTitle />
+        </DetailPage>
+      ) : null}
+
       <TimesheetExport />
       <section className="rounded-xl border border-edge bg-card p-4">
         <h2 className="font-display text-2xl font-semibold">Nhân sự</h2>
@@ -1316,39 +1430,6 @@ export function ManagePanel({ data, onChanged }: { data: WorkspaceData; onChange
   );
 }
 
-function DayBoard({ data }: { data: WorkspaceData }) {
-  const people = data.teamToday;
-  const inside = people.filter((person) => person.lastType === "in").length;
-  const left = people.filter((person) => person.lastType === "out").length;
-  const missing = people.filter((person) => !person.lastAt).length;
-  const attention = data.lateToday.length + data.overtimePending.length + data.offsiteToday.length + data.pendingCount;
-  return (
-    <section className="space-y-3">
-      <div>
-        <p className="text-sm text-muted">Hôm nay</p>
-        <h2 className="font-display text-4xl font-semibold">{data.profile.role === "admin" ? "Bảng quản trị" : "Bảng đội"}</h2>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <Glance label="Đang trong ca" value={inside} tone="pine" />
-        <Glance label="Đã ra" value={left} tone="ok" />
-        <Glance label="Chưa chấm" value={missing} tone={missing > 0 ? "clay" : "muted"} />
-        <Glance label="Cần xử lý" value={attention} tone={attention > 0 ? "clay" : "muted"} />
-      </div>
-    </section>
-  );
-}
-
-function Glance({ label, value, tone }: { label: string; value: number; tone: "pine" | "ok" | "clay" | "muted" }) {
-  const toneClass =
-    tone === "pine" ? "text-ink" : tone === "ok" ? "text-ok" : tone === "clay" ? "text-clay" : "text-muted";
-  return (
-    <article className="rounded-xl border border-edge bg-card px-4 py-3">
-      <p className={`font-display text-5xl font-semibold tabular-nums ${toneClass}`}>{value}</p>
-      <p className="mt-1 text-sm text-muted">{label}</p>
-    </article>
-  );
-}
-
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
@@ -1356,10 +1437,10 @@ function initials(name: string): string {
   return `${parts[0].slice(0, 1)}${parts[parts.length - 1].slice(0, 1)}`.toUpperCase();
 }
 
-function LateReport({ rows, fromMinutes }: { rows: PunchRow[]; fromMinutes: number }) {
+function LateReport({ rows, fromMinutes, hideTitle }: { rows: PunchRow[]; fromMinutes: number; hideTitle?: boolean }) {
   return (
     <section className="space-y-2">
-      <h2 className="font-display text-2xl font-semibold">Đi muộn hôm nay</h2>
+      {hideTitle ? null : <h2 className="font-display text-2xl font-semibold">Đi muộn hôm nay</h2>}
       {rows.length === 0 ? <p className="text-sm text-muted">Chưa có ai muộn từ {fromMinutes} phút.</p> : null}
       {rows.map((row) => (
         <article key={row.id} className="flex items-center gap-3 rounded-md border border-line bg-card px-4 py-3">
@@ -1377,7 +1458,7 @@ function LateReport({ rows, fromMinutes }: { rows: PunchRow[]; fromMinutes: numb
   );
 }
 
-function OvertimeQueue({ rows, onChanged }: { rows: PunchRow[]; onChanged: () => Promise<void> }) {
+function OvertimeQueue({ rows, onChanged, hideTitle }: { rows: PunchRow[]; onChanged: () => Promise<void>; hideTitle?: boolean }) {
   const [error, setError] = useState("");
   async function decide(id: number, decision: "approved" | "rejected") {
     setError("");
@@ -1390,7 +1471,7 @@ function OvertimeQueue({ rows, onChanged }: { rows: PunchRow[]; onChanged: () =>
   }
   return (
     <section className="space-y-2">
-      <h2 className="font-display text-2xl font-semibold">Tăng ca chờ duyệt</h2>
+      {hideTitle ? null : <h2 className="font-display text-2xl font-semibold">Tăng ca chờ duyệt</h2>}
       {rows.length === 0 ? <p className="text-sm text-muted">Chưa có tăng ca từ 1 giờ.</p> : null}
       {error ? <p className="text-sm text-clay">{error}</p> : null}
       {rows.map((row) => (
@@ -1447,10 +1528,10 @@ function OffsiteCard({ row }: { row: PunchRow }) {
   );
 }
 
-function OffsiteReport({ rows }: { rows: PunchRow[] }) {
+function OffsiteReport({ rows, hideTitle }: { rows: PunchRow[]; hideTitle?: boolean }) {
   return (
     <section className="space-y-2">
-      <h2 className="font-display text-2xl font-semibold">Chấm ngoài điểm hôm nay</h2>
+      {hideTitle ? null : <h2 className="font-display text-2xl font-semibold">Chấm ngoài điểm hôm nay</h2>}
       {rows.length === 0 ? <p className="text-sm text-muted">Chưa có lần nào.</p> : null}
       {rows.map((row) => (
         <OffsiteCard key={row.id} row={row} />
@@ -1503,36 +1584,27 @@ function TimesheetExport() {
   );
 }
 
-function TeamBoard({ people, lateIds }: { people: PersonRow[]; lateIds: Set<string> }) {
-  const inside = people.filter((person) => person.lastType === "in");
-  const left = people.filter((person) => person.lastType === "out");
-  const missing = people.filter((person) => !person.lastAt);
-  return (
-    <section className="space-y-4">
-      <PersonGroup title="Đang trong ca" people={inside} lateIds={lateIds} empty="Chưa ai đang trong ca." />
-      <PersonGroup title="Đã ra" people={left} lateIds={lateIds} empty="Chưa ai ra ca." />
-      <PersonGroup title="Chưa chấm" people={missing} lateIds={lateIds} empty="Mọi người đã chấm." />
-    </section>
-  );
-}
-
 function PersonGroup({
   title,
   people,
   lateIds,
   empty,
+  hideTitle,
 }: {
   title: string;
   people: PersonRow[];
   lateIds: Set<string>;
   empty: string;
+  hideTitle?: boolean;
 }) {
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <h2 className="font-display text-2xl font-semibold">{title}</h2>
-        <span className="text-sm tabular-nums text-muted">{people.length}</span>
-      </div>
+      {hideTitle ? null : (
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-2xl font-semibold">{title}</h2>
+          <span className="text-sm tabular-nums text-muted">{people.length}</span>
+        </div>
+      )}
       {people.length === 0 ? <p className="text-sm text-muted">{empty}</p> : null}
       {people.map((person) => {
         const late = lateIds.has(person.userId);

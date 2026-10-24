@@ -336,12 +336,21 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
         />
       ) : (
         <div className="max-h-[70dvh] overflow-auto rounded-xl border border-edge bg-card">
-          <table className="border-separate border-spacing-0 text-sm">
+          <table className="w-full min-w-[58rem] table-fixed border-separate border-spacing-0 text-sm">
+            <colgroup>
+              <col className="w-48" />
+              {Array.from({ length: 6 }, (_, i) => (
+                <col key={i} className="w-11" />
+              ))}
+              {days.map((d) => (
+                <col key={d} />
+              ))}
+            </colgroup>
             <thead>
               <tr>
-                <th className="sticky top-0 left-0 z-20 min-w-44 border-b-2 border-ink bg-card px-3 py-2 text-left font-semibold">Nhân viên</th>
+                <th className="sticky top-0 left-0 z-20 border-b-2 border-ink bg-card px-3 py-2 text-left font-semibold">Nhân viên</th>
                 {["Công", "Muộn", "Vắng", "Thiếu", "Nghỉ", "TC"].map((h) => (
-                  <th key={h} className="sticky top-0 z-10 border-b-2 border-ink bg-card px-2 py-2 text-center text-xs font-semibold text-muted">
+                  <th key={h} className="sticky top-0 z-10 border-b-2 border-ink bg-card px-0.5 py-2 text-center text-xs font-semibold text-muted">
                     {h}
                   </th>
                 ))}
@@ -356,7 +365,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
             <tbody>
               {rows.map(({ person, cells, sum }) => (
                 <tr key={person.userId} className="group">
-                  <th className="sticky left-0 z-10 max-w-52 truncate border-b border-line bg-card px-3 py-1.5 text-left font-medium group-hover:bg-paper">
+                  <th className="sticky left-0 z-10 truncate border-b border-line bg-card px-3 py-1.5 text-left font-medium group-hover:bg-paper">
                     <button type="button" className="flex w-full items-center gap-2 text-left" onClick={() => setPersonId(person.userId)}>
                       <span className="grid size-8 shrink-0 place-items-center rounded-md bg-sand font-display text-base font-semibold">{person.fullName.charAt(0).toUpperCase()}</span>
                       <span className="min-w-0">
@@ -370,16 +379,23 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
                   <Num v={sum.absent} bad />
                   <Num v={sum.partial} bad />
                   <Num v={sum.leave + sum.holiday} />
-                  <td className="border-b border-line px-2 text-center font-display text-base tabular-nums">{sum.overtimeMinutes ? minutesToHm(sum.overtimeMinutes) : "–"}</td>
+                  <td className="border-b border-line px-0.5 text-center font-display text-sm tabular-nums">{sum.overtimeMinutes ? minutesToHm(sum.overtimeMinutes) : "–"}</td>
                   {cells.map((c, i) => (
-                    <td key={days[i]} className="border-b border-line p-0.5">
+                    <td key={days[i]} className="border-b border-line p-px">
                       <button
                         type="button"
                         onClick={() => setSel({ userId: person.userId, dateKey: days[i] })}
                         title={`${person.fullName} · ${KIND_TEXT[c.kind]}${c.cong != null ? ` · ${c.cong} công` : ""}${c.workedMinutes ? ` · làm ${minutesToHm(c.workedMinutes)}` : ""}`}
-                        className={`relative h-9 w-11 rounded-sm border font-display text-sm font-semibold tabular-nums ${CELL_CLASS[c.kind]} ${focus && c.kind !== focus ? "opacity-20" : ""}`}
+                        className={`relative h-9 w-full min-w-0 rounded-sm border font-display font-semibold tabular-nums ${show === "gio" ? "text-[11px]" : "text-sm"} ${CELL_CLASS[c.kind]} ${focus && c.kind !== focus ? "opacity-20" : ""}`}
                       >
-                        {cellText(c, show)}
+                        {show === "gio" && /^\d{1,2}:\d{2}$/.test(c.label) ? (
+                          <span className="flex flex-col items-center leading-[13px]">
+                            <span>{c.label.split(":")[0]}</span>
+                            <span className="text-[10px] font-normal opacity-80">{c.label.split(":")[1]}</span>
+                          </span>
+                        ) : (
+                          cellText(c, show)
+                        )}
                         {c.offsite ? <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-clay ring-1 ring-card" /> : null}
                         {c.overtimeStatus === "approved" ? <span className="absolute right-1 bottom-0.5 left-1 h-0.5 bg-ink" /> : null}
                       </button>
@@ -576,7 +592,7 @@ function DayChips({ cell }: { cell: DayCell }) {
 
 function Num({ v, warn, bad, strong }: { v: number; warn?: boolean; bad?: boolean; strong?: boolean }) {
   const cls = v > 0 && bad ? "text-clay" : v > 0 && warn ? "text-ink" : "text-ink";
-  return <td className={`border-b border-line px-2 text-center font-display text-base tabular-nums ${cls} ${strong ? "font-bold" : ""} ${v === 0 ? "opacity-40" : ""}`}>{fmtCong(v)}</td>;
+  return <td className={`border-b border-line px-0.5 text-center font-display text-base tabular-nums ${cls} ${strong ? "font-bold" : ""} ${v === 0 ? "opacity-40" : ""}`}>{fmtCong(v)}</td>;
 }
 
 function Legend({

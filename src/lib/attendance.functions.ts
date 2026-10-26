@@ -365,6 +365,8 @@ export const getWorkspace = createServerFn({ method: "POST" })
     `;
     let teamToday: PersonRow[] = [];
     if (canReview(profile.role)) {
+      // Nhân viên nghỉ việc quá LEFT_VISIBLE_DAYS ngày thì không hiện trong danh sách nữa.
+      const hideBefore = vnDateKey(new Date(Date.now() - LEFT_VISIBLE_DAYS * 86_400_000));
       const people = await sql<{
         user_id: string;
         full_name: string;
@@ -404,6 +406,7 @@ export const getWorkspace = createServerFn({ method: "POST" })
           limit 1
         ) f on true
         where p.company_id = ${profile.companyId}
+          and (p.is_active = true or p.ended_on is null or p.ended_on > ${hideBefore}::date)
         order by p.full_name asc
       `;
       teamToday = people.map((p) => ({
@@ -1373,7 +1376,9 @@ export const adminUpdateProfile = createServerFn({ method: "POST" })
       if (startedOn && !/^\d{4}-\d{2}-\d{2}$/.test(startedOn)) throw new Error("Ngày vào làm chưa đúng");
       const endedOn = input.endedOn.trim();
       if (endedOn && !/^\d{4}-\d{2}-\d{2}$/.test(endedOn)) throw new Error("Ngày nghỉ việc chưa đúng");
-      return { userId, fullName, employeeCode, department, jobTitle, startedOn, isActive: Boolean(input.isActive), endedOn };
+      const isActive = Boolean(input.isActive);
+      // Nghỉ việc mà chưa ghi ngày thì lấy hôm nay; đi làm lại thì xóa ngày nghỉ.
+      return { userId, fullName, employeeCode, department, jobTitle, startedOn, isActive, endedOn: isActive ? "" : endedOn || vnDateKey() };
     },
   )
   .middleware([authMiddleware])
@@ -1457,6 +1462,31 @@ export const saveLocation = createServerFn({ method: "POST" })
       `;
       if (!updated[0]) throw new Error("Không tìm thấy vị trí");
     }
+    return { ok: true };
+  });
+
+/** Ngày công ty giữ nhân viên đã nghỉ trong danh sách trước khi tự ẩn (dữ liệu chấm công và bảng công cũ vẫn giữ). */
+export const LEFT_VISIBLE_DAYS = 15;
+
+/** Tích "nghỉ việc" (left = true) hoặc bỏ tích để cho đi làm lại. */
+export const setEmployeeLeft = createServerFn({ method: "POST" })
+  .validator((input: { userId: string; left: boolean }) => {
+    if (!input.userId || input.userId.length > 80) throw new Error("Người dùng không hợp lệ");
+    return { userId: input.userId, left: Boolean(input.left) };
+  })
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) => {
+    const profile = await requireProfile(context.userId);
+    if (profile.role !== "admin") throw new Error("Chỉ quản trị được cho nhân viên nghỉ việc");
+    if (data.left && data.userId === profile.userId) throw new Error("Không thể tự cho mình nghỉ việc.");
+    const sql = await getSql();
+    const today = vnDateKey();
+    await sql`
+      update profiles
+      set is_active = ${!data.left},
+          ended_on = ${data.left ? today : null}::date
+      where user_id = ${data.userId} and company_id = ${profile.companyId}
+    `;
     return { ok: true };
   });
 

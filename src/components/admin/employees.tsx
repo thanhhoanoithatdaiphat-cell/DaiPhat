@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { PersonCard } from "@/components/panels";
+import { errorText } from "@/components/ui";
+import { LEFT_VISIBLE_DAYS, setEmployeeLeft } from "@/lib/attendance.functions";
 import { InviteCodeCard } from "@/components/invite-card";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
 import type { PersonRow, Role } from "@/lib/attendance-types";
@@ -30,6 +32,18 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
   const [dept, setDept] = useState("");
   const [status, setStatus] = useState<StatusFilter>("active");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  async function toggleLeft(p: PersonRow, left: boolean) {
+    if (left && !window.confirm(`Cho ${p.fullName} nghỉ việc từ hôm nay? Sau ${LEFT_VISIBLE_DAYS} ngày người này sẽ tự ẩn khỏi danh sách (dữ liệu công cũ vẫn giữ).`)) return;
+    setError("");
+    try {
+      await setEmployeeLeft({ data: { userId: p.userId, left } });
+      await reload();
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }
 
   const people = data.teamToday;
   const activeCount = people.filter((p) => p.isActive !== false).length;
@@ -97,12 +111,13 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
             </div>
           </div>
 
+          {error ? <p className="text-sm text-clay">{error}</p> : null}
           <Card>
             {shown.length === 0 ? (
               <p className="px-5 py-10 text-sm text-muted">Không có nhân viên khớp bộ lọc.</p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[44rem] border-collapse text-sm">
+                <table className="w-full min-w-[48rem] border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-line text-left text-xs font-semibold text-muted uppercase">
                       <th className="px-4 py-2">Nhân viên</th>
@@ -112,6 +127,7 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
                       <th className="px-2 py-2">Vai trò</th>
                       <th className="px-2 py-2">Vào làm</th>
                       <th className="px-4 py-2">Trạng thái</th>
+                      <th className="px-4 py-2 text-center">Nghỉ việc</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -142,6 +158,17 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
                         <td className="px-4 py-2.5">
                           {p.isActive === false ? <Chip tone="clay">Đã nghỉ {p.endedOn ? fmtDate(p.endedOn) : ""}</Chip> : <Chip tone="ok">Đang làm</Chip>}
                         </td>
+                        <td className="px-4 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            className="size-5 accent-[var(--color-clay)]"
+                            checked={p.isActive === false}
+                            disabled={p.userId === data.profile.userId}
+                            aria-label={`Nghỉ việc: ${p.fullName}`}
+                            onChange={(e) => void toggleLeft(p, e.target.checked)}
+                            onKeyDown={(e) => e.stopPropagation()}
+                          />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -153,7 +180,7 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
 
         <div className="space-y-4">
           <InviteCodeCard />
-          <p className="text-xs text-muted">Nhân viên mới tự đăng ký bằng số điện thoại và mã mời, rồi xuất hiện ở đây. Bấm một dòng để điền mã NV, phòng ban, vai trò hoặc cho nghỉ việc.</p>
+          <p className="text-xs text-muted">Nhân viên mới tự đăng ký bằng số điện thoại và mã mời, rồi xuất hiện ở đây. Bấm một dòng để điền mã NV, phòng ban, vai trò. Tích ô "Nghỉ việc" khi có người nghỉ: sau 15 ngày người đó tự ẩn khỏi danh sách (dữ liệu công cũ vẫn giữ để tính lương).</p>
         </div>
       </div>
 

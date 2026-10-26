@@ -1,5 +1,20 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { getPunchPhoto } from "@/lib/attendance.functions";
+
+/** Bấm hoặc chạm ra ngoài vùng `ref` thì gọi onAway (dùng để đóng bảng chi tiết đang mở). */
+export function useClickAway(ref: RefObject<HTMLElement | null>, onAway: () => void, enabled: boolean) {
+  const cb = useRef(onAway);
+  cb.current = onAway;
+  useEffect(() => {
+    if (!enabled) return;
+    const onDown = (e: PointerEvent) => {
+      const el = ref.current;
+      if (el && e.target instanceof Node && !el.contains(e.target)) cb.current();
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [ref, enabled]);
+}
 
 export const KIND_LABEL: Record<string, string> = {
   quen: "Quên chấm",

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Download, Lock, Search, X } from "lucide-react";
 import { errorText } from "@/components/ui";
 import { getHistory, listAudit } from "@/lib/attendance.functions";
@@ -7,7 +7,8 @@ import { scheduleOf } from "@/lib/attendance-types";
 import { buildCell, summarize, weekdayOf, type CellKind, type DayCell } from "@/lib/month-grid";
 import { formatMeters, minutesToHm, nextDateKey, vnDateKey, vnTime } from "@/lib/vn-time";
 import type { AdminCtx } from "./app";
-import { Card, Chip, PageHero, PunchPhoto } from "./common";
+import { compareByCode } from "@/lib/employee-order";
+import { Card, Chip, PageHero, PunchPhoto, useClickAway } from "./common";
 
 type Tab = "day" | "punch" | "audit";
 type StatusFilter = "all" | "ok" | "late" | "partial" | "absent" | "leave" | "offsite" | "corrected" | "overtime";
@@ -167,6 +168,9 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const detailRef = useRef<HTMLElement>(null);
+  useClickAway(detailRef, () => setDetail(null), detail !== null);
+
   const dayRows = useMemo<DayRow[]>(() => {
     if (!hist) return [];
     const out: DayRow[] = [];
@@ -263,7 +267,7 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
         case "overtime": return c.overtimeMinutes > 0;
       }
     });
-    list.sort((a, b) => (asc ? 1 : -1) * a.date.localeCompare(b.date) || a.fullName.localeCompare(b.fullName, "vi"));
+    list.sort((a, b) => (asc ? 1 : -1) * a.date.localeCompare(b.date) || compareByCode({ employeeCode: a.code, fullName: a.fullName }, { employeeCode: b.code, fullName: b.fullName }));
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dayRows, q, dept, status, asc]);
@@ -537,7 +541,7 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
       ) : null}
 
       {detail && detailPerson ? (
-        <aside className="fixed inset-y-0 right-0 z-30 w-full overflow-y-auto border-l-2 border-ink bg-card p-5 shadow-2xl sm:w-[26rem]" aria-label="Chi tiết ngày">
+        <aside ref={detailRef} className="fixed inset-y-0 right-0 z-30 w-full overflow-y-auto border-l-2 border-ink bg-card p-5 shadow-2xl sm:w-[26rem]" aria-label="Chi tiết ngày">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="font-display text-3xl font-semibold">{detailPerson.fullName}</p>

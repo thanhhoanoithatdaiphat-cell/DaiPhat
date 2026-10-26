@@ -1,11 +1,12 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { PersonCard } from "@/components/panels";
 import { InviteCodeCard } from "@/components/invite-card";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
 import type { PersonRow, Role } from "@/lib/attendance-types";
 import type { AdminCtx } from "./app";
-import { Card, Chip, PageHero } from "./common";
+import { compareByCode } from "@/lib/employee-order";
+import { Card, Chip, PageHero, useClickAway } from "./common";
 
 const ROLE_LABEL: Record<Role, string> = { employee: "Nhân viên", approver: "Người duyệt", admin: "Quản trị" };
 
@@ -44,8 +45,10 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
       if (dept && (p.department ?? "") !== dept) return false;
       if (!q) return true;
       return [p.fullName, p.employeeCode ?? "", p.phone ?? "", p.jobTitle ?? ""].some((v) => v.toLowerCase().includes(q));
-    });
+    }).sort(compareByCode);
   }, [people, query, dept, status]);
+  const panelRef = useRef<HTMLElement>(null);
+  useClickAway(panelRef, () => setOpenId(null), openId !== null);
   const open = openId ? people.find((p) => p.userId === openId) : undefined;
   const missingInfo = people.filter((p) => p.isActive !== false && (!p.employeeCode || !p.department)).length;
 
@@ -155,7 +158,7 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
       </div>
 
       {open ? (
-        <aside className="fixed inset-y-0 right-0 z-30 w-full overflow-y-auto border-l-2 border-ink bg-paper p-5 shadow-2xl sm:w-[26rem]" aria-label="Hồ sơ nhân viên">
+        <aside ref={panelRef} className="fixed inset-y-0 right-0 z-30 w-full overflow-y-auto border-l-2 border-ink bg-paper p-5 shadow-2xl sm:w-[26rem]" aria-label="Hồ sơ nhân viên">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-display text-3xl font-semibold">Hồ sơ</h2>
             <button type="button" aria-label="Đóng" className="grid size-9 place-items-center rounded-md border border-edge bg-card" onClick={() => setOpenId(null)}>

@@ -39,6 +39,7 @@ import type {
   WorkspaceData,
 } from "@/lib/attendance-types";
 import { scheduleOf } from "@/lib/attendance-types";
+import { compareByCode } from "@/lib/employee-order";
 import {
   formatMeters,
   formatMonthLabel,
@@ -1471,7 +1472,7 @@ function PeopleTab({ data, onChanged }: { data: WorkspaceData; onChanged: () => 
   const [openId, setOpenId] = useState<string | null>(null);
   const [more, setMore] = useState(8);
   const q = query.trim().toLowerCase();
-  const list = data.teamToday.filter(
+  const list = [...data.teamToday].sort(compareByCode).filter(
     (p) => p.isActive !== false && (!q || [p.fullName, p.employeeCode ?? "", p.phone ?? "", p.department ?? ""].some((v) => v.toLowerCase().includes(q))),
   );
   const shown = list.slice(0, more);

@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { AlarmClock, ChevronLeft, ChevronRight, ClipboardList, Hourglass, MapPin, MapPinOff } from "lucide-react";
+import { ChevronLeft, ChevronRight, MapPin } from "lucide-react";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
 import { workedMinutes } from "@/lib/month-grid";
 import { CameraSheet } from "@/components/camera-sheet";
-import { PunchSuccessDialog, type PunchCelebration } from "@/components/punch-success";
 import { errorText, fieldClass, primaryBtn, secondaryBtn } from "@/components/ui";
 import { InviteCodeCard } from "@/components/invite-card";
-import { AlertCard, CountTile, DetailPage } from "@/components/manage-ui";
 import {
   createCorrection,
   createLeaveRequest,
@@ -172,14 +170,11 @@ export function PunchPanel({
   data,
   onChanged,
   onGoRequests,
-  onGoHistory,
 }: {
   data: WorkspaceData;
   onChanged: () => Promise<void>;
   onGoRequests: () => void;
-  onGoHistory?: () => void;
 }) {
-  const [celebration, setCelebration] = useState<PunchCelebration | null>(null);
   const [cameraFor, setCameraFor] = useState<"in" | "out" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -242,7 +237,6 @@ export function PunchPanel({
       setGeoFailed(null);
       setPendingPhoto("");
       if (next.ok) await onChanged();
-      setCelebration({ type, result: next, photo });
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -443,16 +437,6 @@ export function PunchPanel({
         </button>
       </div>
 
-      {celebration ? (
-        <PunchSuccessDialog
-          celebration={celebration}
-          settings={data.settings}
-          workedMinutes={worked}
-          onClose={() => setCelebration(null)}
-          onDetail={onGoHistory}
-        />
-      ) : null}
-
       {cameraFor ? (
         <CameraSheet
           onClose={() => setCameraFor(null)}
@@ -520,10 +504,6 @@ export function ProfilePanel({
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(data.profile.fullName);
-  const [employeeCode, setEmployeeCode] = useState(data.profile.employeeCode ?? "");
-  const [department, setDepartment] = useState(data.profile.department ?? "");
-  const [jobTitle, setJobTitle] = useState(data.profile.jobTitle ?? "");
-  const [startedOn, setStartedOn] = useState(data.profile.startedOn ?? "");
   const [avatar, setAvatar] = useState(data.profile.avatar ?? "");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -550,10 +530,6 @@ export function ProfilePanel({
       await updateProfile({
         data: {
           fullName: name,
-          employeeCode,
-          department,
-          jobTitle,
-          startedOn,
           avatar: avatar && avatar !== data.profile.avatar ? avatar : "",
         },
       });
@@ -606,22 +582,20 @@ export function ProfilePanel({
             {data.profile.phone ? displayPhone(data.profile.phone) : "Chưa gắn"}
           </p>
         </div>
-        <label className="block space-y-1 text-sm">
-          Mã nhân viên
-          <input className={fieldClass} value={employeeCode} onChange={(e) => setEmployeeCode(e.target.value)} maxLength={20} placeholder="VD: NV014" />
-        </label>
-        <label className="block space-y-1 text-sm">
-          Phòng ban
-          <input className={fieldClass} value={department} onChange={(e) => setDepartment(e.target.value)} maxLength={60} placeholder="VD: Kinh doanh" />
-        </label>
-        <label className="block space-y-1 text-sm">
-          Chức danh
-          <input className={fieldClass} value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} maxLength={60} placeholder="VD: Chuyên viên" />
-        </label>
-        <label className="block space-y-1 text-sm">
-          Ngày vào làm
-          <input className={fieldClass} type="date" value={startedOn} max={vnDateKey()} onChange={(e) => setStartedOn(e.target.value)} />
-        </label>
+        {(
+          [
+            ["Mã nhân viên", data.profile.employeeCode],
+            ["Phòng ban", data.profile.department],
+            ["Chức danh", data.profile.jobTitle],
+            ["Ngày vào làm", data.profile.startedOn ? data.profile.startedOn.split("-").reverse().join("/") : null],
+          ] as const
+        ).map(([label, value]) => (
+          <div key={label} className="space-y-1 text-sm">
+            <p>{label}</p>
+            <p className="flex h-12 items-center rounded-md bg-paper px-3 text-base">{value || "Quản trị chưa cập nhật"}</p>
+          </div>
+        ))}
+        <p className="text-xs text-muted">Bạn chỉ tự sửa được họ tên và ảnh đại diện. Các thông tin còn lại do quản trị cập nhật.</p>
         {error ? <p className="text-sm text-clay">{error}</p> : null}
         {saved ? <p className="text-sm text-ok">Đã lưu hồ sơ.</p> : null}
         <button className={`${primaryBtn} w-full`} type="submit" disabled={busy}>
@@ -1186,7 +1160,7 @@ function LeaveSection({ canReview, userId, onChanged }: { canReview: boolean; us
           ))}
         </section>
       ) : null}
-      <form className="space-y-3 rounded-md border border-line bg-card p-4" onSubmit={submit}>
+      <form className="space-y-3" onSubmit={submit}>
         <h2 className="font-display text-2xl font-semibold">Xin nghỉ</h2>
         <p className="text-sm text-muted">Mỗi đơn là một ngày. Được duyệt thì ngày đó không bị tính vắng.</p>
         <div className="grid grid-cols-2 gap-3">
@@ -1285,146 +1259,303 @@ function RankList({ title, rows, empty }: { title: string; rows: { id: string; l
   );
 }
 
-type SheetKey = "overtime" | "late" | "offsite" | "inside" | "left" | "missing";
+type ManageTab = "today" | "people" | "more";
+type Roster = "in" | "out" | "missing" | "late";
 
-/** "Lan, Hùng +2": tên gọi (từ cuối) của vài người đầu. */
-function namesHint(names: (string | undefined)[]): string {
-  const uniq = [...new Set(names.filter((n): n is string => Boolean(n)))];
-  if (uniq.length === 0) return "";
-  const short = uniq.slice(0, 2).map((n) => n.trim().split(/\s+/).pop() ?? n);
-  return short.join(", ") + (uniq.length > 2 ? ` +${uniq.length - 2}` : "");
+const SHOW_STEP = 5;
+
+export function ManagePanel({ data, onChanged }: { data: WorkspaceData; onChanged: () => Promise<void> }) {
+  const isAdmin = data.profile.role === "admin";
+  const [tab, setTab] = useState<ManageTab>("today");
+  const todo = data.overtimePending.length + data.offsiteToday.length + data.pendingCount;
+  const tabs: { key: ManageTab; label: string; badge?: number }[] = [
+    { key: "today", label: "Hôm nay", badge: todo },
+    { key: "people", label: "Nhân sự" },
+    { key: "more", label: isAdmin ? "Cài đặt" : "Bảng công" },
+  ];
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-1 rounded-xl border border-edge bg-card p-1" role="tablist">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            onClick={() => setTab(t.key)}
+            className={`relative h-11 rounded-lg text-sm font-semibold transition-colors ${tab === t.key ? "bg-ink text-card" : "text-muted"}`}
+          >
+            {t.label}
+            {t.badge ? (
+              <span className="ml-1.5 inline-grid min-w-5 place-items-center rounded-full bg-clay px-1.5 text-xs text-white">{t.badge}</span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+      {tab === "today" ? <TodayTab data={data} onChanged={onChanged} /> : null}
+      {tab === "people" ? <PeopleTab data={data} onChanged={onChanged} /> : null}
+      {tab === "more" ? <MoreTab data={data} onChanged={onChanged} isAdmin={isAdmin} /> : null}
+    </div>
+  );
 }
 
-export function ManagePanel({
-  data,
-  onChanged,
-  onGoRequests,
-}: {
-  data: WorkspaceData;
-  onChanged: () => Promise<void>;
-  onGoRequests?: () => void;
-}) {
-  const isAdmin = data.profile.role === "admin";
-  const [sheet, setSheet] = useState<SheetKey | null>(null);
+function TodayTab({ data, onChanged }: { data: WorkspaceData; onChanged: () => Promise<void> }) {
+  const people = data.teamToday.filter((p) => p.isActive !== false);
   const lateIds = new Set(data.lateToday.map((row) => row.userId).filter((id): id is string => Boolean(id)));
-  const people = data.teamToday;
-  const inside = people.filter((person) => person.lastType === "in");
-  const left = people.filter((person) => person.lastType === "out");
-  const missing = people.filter((person) => !person.lastAt);
-  const lateRows = [...data.lateToday].sort((a, b) => b.lateMinutes - a.lateMinutes);
-  const otTotal = data.overtimePending.reduce((sum, row) => sum + row.overtimeMinutes, 0);
-  const showOffsite = data.settings.allowOffsite || data.offsiteToday.length > 0;
-  const attention = data.lateToday.length + data.overtimePending.length + data.offsiteToday.length + data.pendingCount;
-  const closeSheet = () => setSheet(null);
-
+  const [roster, setRoster] = useState<Roster>("missing");
+  const [more, setMore] = useState(SHOW_STEP);
+  const groups: Record<Roster, PersonRow[]> = {
+    in: people.filter((p) => p.lastType === "in"),
+    out: people.filter((p) => p.lastType === "out"),
+    missing: people.filter((p) => !p.lastAt),
+    late: people.filter((p) => lateIds.has(p.userId)),
+  };
+  const chips: { key: Roster; label: string; tone: string }[] = [
+    { key: "in", label: "Trong ca", tone: "text-ink" },
+    { key: "out", label: "Đã ra", tone: "text-ok" },
+    { key: "missing", label: "Chưa chấm", tone: groups.missing.length ? "text-clay" : "text-muted" },
+    { key: "late", label: "Đi muộn", tone: groups.late.length ? "text-clay" : "text-muted" },
+  ];
+  const list = groups[roster];
+  const shown = list.slice(0, more);
   return (
-    <div className="space-y-5">
-      <section className="space-y-3">
-        <div>
-          <p className="text-sm text-muted">Hôm nay</p>
-          <h2 className="font-display text-4xl font-semibold">{isAdmin ? "Bảng quản trị" : "Bảng đội"}</h2>
+    <div className="space-y-4">
+      <ApprovalCard data={data} onChanged={onChanged} />
+      <section className="rounded-xl border border-edge bg-card p-3">
+        <div className="grid grid-cols-4 gap-1.5">
+          {chips.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              aria-pressed={roster === c.key}
+              onClick={() => {
+                setRoster(c.key);
+                setMore(SHOW_STEP);
+              }}
+              className={`rounded-lg border px-1 py-2 text-center ${roster === c.key ? "border-ink bg-ink/10" : "border-line"}`}
+            >
+              <span className={`block font-display text-3xl leading-none font-semibold tabular-nums ${c.tone}`}>{groups[c.key].length}</span>
+              <span className="mt-1 block text-xs text-muted">{c.label}</span>
+            </button>
+          ))}
         </div>
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold">Cần xử lý</h3>
-          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums ${attention > 0 ? "bg-clay/15 text-clay" : "bg-ok/15 text-ok"}`}>
-            {attention > 0 ? `${attention} việc` : "Đã xong hết"}
-          </span>
-        </div>
-        <div className="grid grid-cols-2 gap-2.5">
-          <AlertCard
-            icon={Hourglass}
-            tone="gold"
-            label="Tăng ca"
-            count={data.overtimePending.length}
-            hint={`Chờ duyệt · ${minutesToHm(otTotal)}`}
-            onClick={() => setSheet("overtime")}
-          />
-          <AlertCard
-            icon={ClipboardList}
-            tone="gold"
-            label="Đơn"
-            count={data.pendingCount}
-            hint="Sửa công, nghỉ phép"
-            onClick={onGoRequests}
-          />
-          <AlertCard
-            icon={AlarmClock}
-            tone="clay"
-            label="Đi muộn"
-            count={data.lateToday.length}
-            hint={namesHint(lateRows.map((row) => row.fullName))}
-            onClick={() => setSheet("late")}
-          />
-          {showOffsite ? (
-            <AlertCard
-              icon={MapPinOff}
-              tone="gold"
-              label="Chấm ngoài"
-              count={data.offsiteToday.length}
-              hint={namesHint(data.offsiteToday.map((row) => row.fullName))}
-              onClick={() => setSheet("offsite")}
-            />
+        <ul className="mt-3 divide-y divide-line">
+          {list.length === 0 ? (
+            <li className="py-3 text-sm text-muted">{roster === "missing" ? "Mọi người đã chấm công." : "Chưa có ai."}</li>
           ) : null}
-        </div>
+          {shown.map((p) => (
+            <li key={p.userId} className="flex items-center gap-3 py-2.5">
+              <span className={`grid size-9 shrink-0 place-items-center rounded-full text-xs font-semibold ${lateIds.has(p.userId) ? "bg-clay/10 text-clay" : "bg-sand text-ink"}`}>
+                {initials(p.fullName)}
+              </span>
+              <p className="min-w-0 flex-1 truncate text-sm font-medium">{p.fullName}</p>
+              <p className={`text-sm font-semibold tabular-nums ${lateIds.has(p.userId) ? "text-clay" : "text-muted"}`}>
+                {p.firstInAt ? vnTime(p.firstInAt) : p.lastAt ? vnTime(p.lastAt) : "—"}
+                {lateIds.has(p.userId) && p.firstInLate ? ` · +${p.firstInLate}p` : ""}
+              </p>
+            </li>
+          ))}
+        </ul>
+        {list.length > shown.length ? (
+          <button type="button" className="mt-1 h-10 w-full rounded-lg text-sm font-semibold text-ink" onClick={() => setMore((n) => n + SHOW_STEP * 2)}>
+            Xem thêm {list.length - shown.length} người
+          </button>
+        ) : null}
+        {more > SHOW_STEP && list.length <= shown.length && list.length > SHOW_STEP ? (
+          <button type="button" className="mt-1 h-10 w-full rounded-lg text-sm font-semibold text-muted" onClick={() => setMore(SHOW_STEP)}>
+            Thu gọn
+          </button>
+        ) : null}
       </section>
+    </div>
+  );
+}
 
-      <section className="space-y-2.5">
-        <h3 className="font-semibold">Đội hôm nay</h3>
-        <div className="grid grid-cols-3 gap-2.5">
-          <CountTile label="Trong ca" count={inside.length} onClick={() => setSheet("inside")} />
-          <CountTile label="Đã ra" count={left.length} tone="ok" onClick={() => setSheet("left")} />
-          <CountTile label="Chưa chấm" count={missing.length} tone={missing.length > 0 ? "clay" : "ink"} onClick={() => setSheet("missing")} />
-        </div>
+/** Mọi việc cần người quản lý bấm: tăng ca chờ duyệt và chấm ngoài điểm. Hiện tối đa vài dòng, không có thì ẩn cả thẻ. */
+function ApprovalCard({ data, onChanged }: { data: WorkspaceData; onChanged: () => Promise<void> }) {
+  const [error, setError] = useState("");
+  const [all, setAll] = useState(false);
+  const [photoFor, setPhotoFor] = useState<number | null>(null);
+  const [photo, setPhoto] = useState<string | null>(null);
+  const ot = data.overtimePending;
+  const off = data.offsiteToday;
+  const shownOt = all ? ot : ot.slice(0, 3);
+  const total = ot.length + off.length;
+
+  async function decide(id: number, decision: "approved" | "rejected") {
+    setError("");
+    try {
+      await reviewOvertime({ data: { id, decision } });
+      await onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }
+
+  if (total === 0) {
+    return (
+      <section className="rounded-xl border border-edge bg-card px-4 py-3 text-sm text-muted">
+        Không có gì cần duyệt. Tăng ca từ {data.settings.overtimeMinMinutes} phút sẽ hiện ở đây.
       </section>
+    );
+  }
+  return (
+    <section className="rounded-xl border border-gold/50 bg-card p-3">
+      <h3 className="px-1 font-display text-2xl font-semibold">Cần xử lý · {total}</h3>
+      {error ? <p className="px-1 text-sm text-clay">{error}</p> : null}
+      {ot.length ? <p className="mt-2 px-1 text-xs font-semibold tracking-wide text-muted uppercase">Tăng ca chờ duyệt</p> : null}
+      <ul className="divide-y divide-line">
+        {shownOt.map((row) => (
+          <li key={row.id} className="py-2.5">
+            <div className="flex items-center gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-sand text-xs font-semibold">{initials(row.fullName ?? "?")}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{row.fullName ?? "Nhân viên"}</p>
+                <p className="text-xs text-muted">Ra lúc {vnTime(row.punchedAt)}</p>
+              </div>
+              <p className="font-display text-xl font-semibold tabular-nums">{minutesToHm(row.overtimeMinutes)}</p>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button type="button" className={`${primaryBtn} !h-10`} onClick={() => void decide(row.id, "approved")}>
+                Chấp nhận
+              </button>
+              <button type="button" className={`${secondaryBtn} !h-10`} onClick={() => void decide(row.id, "rejected")}>
+                Từ chối
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {ot.length > 3 ? (
+        <button type="button" className="h-10 w-full text-sm font-semibold text-ink" onClick={() => setAll((v) => !v)}>
+          {all ? "Thu gọn" : `Xem thêm ${ot.length - 3} tăng ca`}
+        </button>
+      ) : null}
+      {off.length ? <p className="mt-2 px-1 text-xs font-semibold tracking-wide text-muted uppercase">Chấm ngoài điểm</p> : null}
+      <ul className="divide-y divide-line">
+        {off.map((row) => (
+          <li key={row.id} className="py-2.5">
+            <p className="text-sm font-medium">{row.fullName ?? "Nhân viên"}</p>
+            <p className="text-xs text-muted">
+              {vnTime(row.punchedAt)} · {row.type === "in" ? "Vào" : "Ra"}
+              {row.nearestName ? ` · gần ${row.nearestName}` : ""}
+              {row.distanceMeters != null ? ` · ${formatMeters(row.distanceMeters)}` : ""}
+            </p>
+            {row.hasPhoto ? (
+              <button
+                type="button"
+                className="mt-1 text-sm font-semibold text-ink"
+                onClick={() => {
+                  if (photoFor === row.id) {
+                    setPhotoFor(null);
+                    return;
+                  }
+                  setPhotoFor(row.id);
+                  setPhoto(null);
+                  void getPunchPhoto({ data: row.id }).then((res) => setPhoto(res.photo)).catch(() => setPhoto(null));
+                }}
+              >
+                {photoFor === row.id ? "Ẩn ảnh" : "Xem ảnh"}
+              </button>
+            ) : null}
+            {photoFor === row.id && photo ? <img src={photo} alt="Ảnh chấm công" className="mt-2 max-h-56 w-full rounded-lg object-cover" /> : null}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
-      {sheet === "overtime" ? (
-        <DetailPage title="Tăng ca chờ duyệt" subtitle={data.companyName} count={data.overtimePending.length} onClose={closeSheet}>
-          <OvertimeQueue rows={data.overtimePending} onChanged={onChanged} hideTitle />
-        </DetailPage>
-      ) : null}
-      {sheet === "late" ? (
-        <DetailPage title="Đi muộn hôm nay" subtitle={data.companyName} count={lateRows.length} onClose={closeSheet}>
-          <LateReport rows={lateRows} fromMinutes={data.settings.lateMinutes} hideTitle />
-        </DetailPage>
-      ) : null}
-      {sheet === "offsite" ? (
-        <DetailPage title="Chấm ngoài điểm" subtitle={data.companyName} count={data.offsiteToday.length} onClose={closeSheet}>
-          <OffsiteReport rows={data.offsiteToday} hideTitle />
-        </DetailPage>
-      ) : null}
-      {sheet === "inside" ? (
-        <DetailPage title="Đang trong ca" subtitle={data.companyName} count={inside.length} onClose={closeSheet}>
-          <PersonGroup title="Đang trong ca" people={inside} lateIds={lateIds} empty="Chưa ai đang trong ca." hideTitle />
-        </DetailPage>
-      ) : null}
-      {sheet === "left" ? (
-        <DetailPage title="Đã ra ca" subtitle={data.companyName} count={left.length} onClose={closeSheet}>
-          <PersonGroup title="Đã ra" people={left} lateIds={lateIds} empty="Chưa ai ra ca." hideTitle />
-        </DetailPage>
-      ) : null}
-      {sheet === "missing" ? (
-        <DetailPage title="Chưa chấm công" subtitle={data.companyName} count={missing.length} onClose={closeSheet}>
-          <PersonGroup title="Chưa chấm" people={missing} lateIds={lateIds} empty="Mọi người đã chấm." hideTitle />
-        </DetailPage>
-      ) : null}
-
-      <TimesheetExport />
-      <section className="rounded-xl border border-edge bg-card p-4">
-        <h2 className="font-display text-2xl font-semibold">Nhân sự</h2>
-        <p className="mt-1 text-sm text-muted">Danh sách tất cả thành viên. Quản trị bấm “Sửa” để cập nhật hồ sơ hoặc khóa tài khoản.</p>
-        <div className="mt-3">
-          <PeopleEditor people={data.teamToday} selfId={data.profile.userId} onChanged={onChanged} />
+function PeopleTab({ data, onChanged }: { data: WorkspaceData; onChanged: () => Promise<void> }) {
+  const [query, setQuery] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [more, setMore] = useState(8);
+  const q = query.trim().toLowerCase();
+  const list = data.teamToday.filter(
+    (p) => p.isActive !== false && (!q || [p.fullName, p.employeeCode ?? "", p.phone ?? "", p.department ?? ""].some((v) => v.toLowerCase().includes(q))),
+  );
+  const shown = list.slice(0, more);
+  const open = openId ? data.teamToday.find((p) => p.userId === openId) : undefined;
+  return (
+    <section className="space-y-3">
+      <input
+        className={fieldClass}
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setMore(8);
+        }}
+        placeholder={`Tìm trong ${data.teamToday.filter((p) => p.isActive !== false).length} người…`}
+        aria-label="Tìm nhân viên"
+      />
+      {open ? (
+        <div className="space-y-2">
+          <button type="button" className="flex h-10 items-center gap-1 text-sm font-semibold text-ink" onClick={() => setOpenId(null)}>
+            <ChevronLeft className="size-4" /> Danh sách
+          </button>
+          <PersonCard key={open.userId} person={open} selfId={data.profile.userId} onChanged={onChanged} defaultOpen />
         </div>
-      </section>
+      ) : (
+        <>
+          <ul className="divide-y divide-line rounded-xl border border-edge bg-card">
+            {list.length === 0 ? <li className="px-4 py-3 text-sm text-muted">Không tìm thấy ai.</li> : null}
+            {shown.map((p) => (
+              <li key={p.userId}>
+                <button type="button" className="flex w-full items-center gap-3 px-3 py-2.5 text-left" onClick={() => setOpenId(p.userId)}>
+                  <span className="grid size-9 shrink-0 place-items-center rounded-full bg-sand text-xs font-semibold">{initials(p.fullName)}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{p.fullName}{p.userId === data.profile.userId ? " (bạn)" : ""}</span>
+                    <span className="block truncate text-xs text-muted">{[ROLE_LABEL[p.role], p.department].filter(Boolean).join(" · ")}</span>
+                  </span>
+                  <ChevronRight className="size-4 shrink-0 text-muted" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          {list.length > shown.length ? (
+            <button type="button" className={`${secondaryBtn} w-full`} onClick={() => setMore((n) => n + 10)}>
+              Xem thêm {list.length - shown.length} người
+            </button>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
+function Fold({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <details className="group rounded-xl border border-edge bg-card">
+      <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-4 py-3">
+        <span className="min-w-0 flex-1">
+          <span className="block font-semibold">{title}</span>
+          {hint ? <span className="block text-xs text-muted">{hint}</span> : null}
+        </span>
+        <ChevronRight className="size-4 text-muted transition-transform group-open:rotate-90" />
+      </summary>
+      <div className="space-y-4 border-t border-line p-3">{children}</div>
+    </details>
+  );
+}
+
+function MoreTab({ data, onChanged, isAdmin }: { data: WorkspaceData; onChanged: () => Promise<void>; isAdmin: boolean }) {
+  return (
+    <div className="space-y-2">
+      <Fold title="Xuất bảng công" hint="Tải file theo tháng">
+        <TimesheetExport />
+      </Fold>
       {isAdmin ? (
-        <details className="rounded-xl border border-edge bg-card p-4">
-          <summary className="font-display cursor-pointer text-2xl font-semibold">Cài đặt công ty</summary>
-          <div className="mt-4 space-y-4">
+        <>
+          <Fold title="Mã mời nhân viên" hint="Gửi mã cho người mới đăng ký">
             <InviteCodeCard />
+          </Fold>
+          <Fold title="Giờ và quy tắc" hint={`${data.settings.workStart}–${data.settings.workEnd} · tăng ca từ ${data.settings.overtimeMinMinutes} phút`}>
             <SettingsForm data={data} onChanged={onChanged} />
+          </Fold>
+          <Fold title="Điểm chấm công" hint={`${data.locations.length} địa điểm`}>
             <LocationEditor locations={data.locations} onChanged={onChanged} />
-          </div>
-        </details>
+          </Fold>
+        </>
       ) : null}
     </div>
   );
@@ -1435,109 +1566,6 @@ function initials(name: string): string {
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
   return `${parts[0].slice(0, 1)}${parts[parts.length - 1].slice(0, 1)}`.toUpperCase();
-}
-
-function LateReport({ rows, fromMinutes, hideTitle }: { rows: PunchRow[]; fromMinutes: number; hideTitle?: boolean }) {
-  return (
-    <section className="space-y-2">
-      {hideTitle ? null : <h2 className="font-display text-2xl font-semibold">Đi muộn hôm nay</h2>}
-      {rows.length === 0 ? <p className="text-sm text-muted">Chưa có ai muộn từ {fromMinutes} phút.</p> : null}
-      {rows.map((row) => (
-        <article key={row.id} className="flex items-center gap-3 rounded-md border border-line bg-card px-4 py-3">
-          <span className="grid size-11 shrink-0 place-items-center rounded-full bg-clay/10 text-sm font-semibold text-clay">
-            {initials(row.fullName ?? "?")}
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-medium">{row.fullName ?? "Nhân viên"}</p>
-            <p className="text-sm text-muted">Vào lúc {vnTime(row.punchedAt)}</p>
-          </div>
-          <p className="text-right text-sm font-semibold text-clay">+{row.lateMinutes} phút</p>
-        </article>
-      ))}
-    </section>
-  );
-}
-
-function OvertimeQueue({ rows, onChanged, hideTitle }: { rows: PunchRow[]; onChanged: () => Promise<void>; hideTitle?: boolean }) {
-  const [error, setError] = useState("");
-  async function decide(id: number, decision: "approved" | "rejected") {
-    setError("");
-    try {
-      await reviewOvertime({ data: { id, decision } });
-      await onChanged();
-    } catch (err) {
-      setError(errorText(err));
-    }
-  }
-  return (
-    <section className="space-y-2">
-      {hideTitle ? null : <h2 className="font-display text-2xl font-semibold">Tăng ca chờ duyệt</h2>}
-      {rows.length === 0 ? <p className="text-sm text-muted">Chưa có tăng ca từ 1 giờ.</p> : null}
-      {error ? <p className="text-sm text-clay">{error}</p> : null}
-      {rows.map((row) => (
-        <article key={row.id} className="rounded-md border border-line bg-card px-4 py-3">
-          <div className="flex items-center gap-3">
-            <span className="grid size-11 shrink-0 place-items-center rounded-full bg-sand text-sm font-semibold">
-              {initials(row.fullName ?? "?")}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium">{row.fullName ?? "Nhân viên"}</p>
-              <p className="text-sm text-muted">Ra lúc {vnTime(row.punchedAt)}</p>
-            </div>
-            <p className="text-right font-display text-2xl font-semibold tabular-nums">{minutesToHm(row.overtimeMinutes)}</p>
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button type="button" className={primaryBtn} onClick={() => void decide(row.id, "approved")}>
-              Chấp nhận
-            </button>
-            <button type="button" className={secondaryBtn} onClick={() => void decide(row.id, "rejected")}>
-              Từ chối
-            </button>
-          </div>
-        </article>
-      ))}
-    </section>
-  );
-}
-
-function OffsiteCard({ row }: { row: PunchRow }) {
-  const [photo, setPhoto] = useState<string | null>(null);
-  return (
-    <article className="rounded-md border border-line bg-card px-4 py-3">
-      <p className="font-medium">{row.fullName ?? "Nhân viên"}</p>
-      <p className="text-sm text-muted">
-        {vnTime(row.punchedAt)} · {row.type === "in" ? "Vào" : "Ra"}
-        {row.nearestName ? ` · gần ${row.nearestName}` : ""}
-        {row.distanceMeters != null ? ` · ${formatMeters(row.distanceMeters)}` : ""}
-      </p>
-      {row.hasPhoto ? (
-        <button
-          type="button"
-          className="mt-2 text-sm font-semibold text-ink"
-          onClick={() => {
-            void getPunchPhoto({ data: row.id }).then((res) => setPhoto(res.photo)).catch(() => setPhoto(null));
-          }}
-        >
-          Xem ảnh
-        </button>
-      ) : (
-        <p className="mt-2 text-sm text-muted">Không có ảnh</p>
-      )}
-      {photo ? <img src={photo} alt="Ảnh chấm công" className="mt-3 max-h-64 w-full rounded-md object-cover" /> : null}
-    </article>
-  );
-}
-
-function OffsiteReport({ rows, hideTitle }: { rows: PunchRow[]; hideTitle?: boolean }) {
-  return (
-    <section className="space-y-2">
-      {hideTitle ? null : <h2 className="font-display text-2xl font-semibold">Chấm ngoài điểm hôm nay</h2>}
-      {rows.length === 0 ? <p className="text-sm text-muted">Chưa có lần nào.</p> : null}
-      {rows.map((row) => (
-        <OffsiteCard key={row.id} row={row} />
-      ))}
-    </section>
-  );
 }
 
 function TimesheetExport() {
@@ -1565,8 +1593,7 @@ function TimesheetExport() {
   }
 
   return (
-    <section className="space-y-3 rounded-md border border-line bg-card p-4">
-      <h2 className="font-display text-2xl font-semibold">Bảng công tháng</h2>
+    <section className="space-y-3">
       <div className="flex items-center justify-between">
         <button type="button" className="grid size-11 place-items-center rounded-full border border-line" onClick={() => setMonth((m) => shiftMonth(m, -1))} aria-label="Tháng trước">
           <ChevronLeft className="size-5" />
@@ -1581,50 +1608,6 @@ function TimesheetExport() {
         {busy ? "Đang tạo…" : "Tải bảng công"}
       </button>
     </section>
-  );
-}
-
-function PersonGroup({
-  title,
-  people,
-  lateIds,
-  empty,
-  hideTitle,
-}: {
-  title: string;
-  people: PersonRow[];
-  lateIds: Set<string>;
-  empty: string;
-  hideTitle?: boolean;
-}) {
-  return (
-    <div className="space-y-2">
-      {hideTitle ? null : (
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-2xl font-semibold">{title}</h2>
-          <span className="text-sm tabular-nums text-muted">{people.length}</span>
-        </div>
-      )}
-      {people.length === 0 ? <p className="text-sm text-muted">{empty}</p> : null}
-      {people.map((person) => {
-        const late = lateIds.has(person.userId);
-        const tone = late ? "bg-clay/10 text-clay" : person.lastType === "out" ? "bg-ok/10 text-ok" : person.lastType === "in" ? "bg-pine/10 text-ink" : "bg-sand text-muted";
-        return (
-          <article key={person.userId} className="flex items-center gap-3 rounded-md border border-line bg-card px-4 py-3">
-            <span className={`grid size-11 shrink-0 place-items-center rounded-full text-sm font-semibold ${tone}`}>
-              {initials(person.fullName)}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium">{person.fullName}</p>
-              <p className="text-sm text-muted">{ROLE_LABEL[person.role]}</p>
-            </div>
-            <p className={`text-sm font-semibold ${late ? "text-clay" : "text-ink"}`}>
-              {person.lastAt ? vnTime(person.lastAt) : "—"}
-            </p>
-          </article>
-        );
-      })}
-    </div>
   );
 }
 
@@ -1648,8 +1631,7 @@ export function SettingsForm({ data, onChanged }: { data: WorkspaceData; onChang
   }
 
   return (
-    <form className="space-y-3 rounded-md border border-line bg-card p-4" onSubmit={submit}>
-      <h2 className="font-display text-xl font-bold">Giờ và quy tắc</h2>
+    <form className="space-y-3" onSubmit={submit}>
       <label className="block space-y-1 text-sm">
         Tên công ty
         <input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} />
@@ -1811,7 +1793,7 @@ export function LocationEditor({ locations, onChanged }: { locations: LocationRo
           </button>
         </article>
       ))}
-      <form className="space-y-3 rounded-md border border-line bg-card p-4" onSubmit={submit}>
+      <form className="space-y-3" onSubmit={submit}>
         <h3 className="font-display text-xl font-bold">{form.id ? "Sửa điểm" : "Thêm điểm"}</h3>
         <input className={fieldClass} placeholder="Tên điểm" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
         <div className="grid grid-cols-2 gap-3">

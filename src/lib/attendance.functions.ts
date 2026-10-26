@@ -1326,30 +1326,17 @@ export const reviewOvertime = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/** Nhân viên tự sửa: chỉ họ tên và ảnh đại diện. Mã NV, phòng ban, chức danh, ngày vào làm do quản trị quyết định (adminUpdateProfile). */
 export const updateProfile = createServerFn({ method: "POST" })
-  .validator(
-    (input: {
-      fullName: string;
-      employeeCode: string;
-      department: string;
-      jobTitle: string;
-      startedOn?: string;
-      avatar: string;
-    }) => {
-      const fullName = input.fullName.trim().slice(0, 80);
-      if (fullName.length < 2) throw new Error("Tên cần ít nhất 2 ký tự");
-      const employeeCode = input.employeeCode.trim().slice(0, 20);
-      const department = input.department.trim().slice(0, 60);
-      const jobTitle = input.jobTitle.trim().slice(0, 60);
-      const startedOn = (input.startedOn ?? "").trim();
-      if (startedOn && !/^\d{4}-\d{2}-\d{2}$/.test(startedOn)) throw new Error("Ngày vào làm chưa đúng");
-      const avatar = input.avatar.trim();
-      if (avatar && (!avatar.startsWith("data:image/jpeg;base64,") || avatar.length > 180_000)) {
-        throw new Error("Ảnh đại diện quá nặng hoặc không đúng định dạng.");
-      }
-      return { fullName, employeeCode, department, jobTitle, startedOn, avatar };
-    },
-  )
+  .validator((input: { fullName: string; avatar: string }) => {
+    const fullName = input.fullName.trim().slice(0, 80);
+    if (fullName.length < 2) throw new Error("Tên cần ít nhất 2 ký tự");
+    const avatar = input.avatar.trim();
+    if (avatar && (!avatar.startsWith("data:image/jpeg;base64,") || avatar.length > 180_000)) {
+      throw new Error("Ảnh đại diện quá nặng hoặc không đúng định dạng.");
+    }
+    return { fullName, avatar };
+  })
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
     const profile = await requireProfile(context.userId);
@@ -1357,10 +1344,6 @@ export const updateProfile = createServerFn({ method: "POST" })
     await sql`
       update profiles
       set full_name = ${data.fullName},
-          employee_code = ${data.employeeCode || null},
-          department = ${data.department || null},
-          job_title = ${data.jobTitle || null},
-          started_on = ${data.startedOn || null}::date,
           avatar_data = coalesce(${data.avatar || null}, avatar_data)
       where user_id = ${profile.userId}
     `;

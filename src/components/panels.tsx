@@ -508,6 +508,7 @@ export function ProfilePanel({
   const [avatar, setAvatar] = useState(data.profile.avatar ?? "");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const initial = (name || "N").trim().charAt(0).toUpperCase();
 
@@ -535,6 +536,7 @@ export function ProfilePanel({
         },
       });
       setSaved(true);
+      setEditing(false);
       await onChanged();
     } catch (err) {
       setError(errorText(err));
@@ -543,12 +545,22 @@ export function ProfilePanel({
     }
   }
 
+  function cancelEdit() {
+    setName(data.profile.fullName);
+    setAvatar(data.profile.avatar ?? "");
+    setError("");
+    setEditing(false);
+  }
+
   return (
     <form className="space-y-4" onSubmit={submit}>
       <div className="flex flex-col items-center rounded-xl border border-edge bg-card px-5 py-6">
         <button
           type="button"
-          onClick={() => fileRef.current?.click()}
+          onClick={() => {
+            setEditing(true);
+            fileRef.current?.click();
+          }}
           className="relative grid size-28 place-items-center overflow-hidden rounded-full bg-paper text-2xl font-medium ring-4 ring-ice"
           aria-label="Tải ảnh đại diện"
         >
@@ -564,44 +576,66 @@ export function ProfilePanel({
             e.target.value = "";
           }}
         />
-        <button type="button" className="mt-3 text-sm font-medium text-ink" onClick={() => fileRef.current?.click()}>
-          Tải ảnh đại diện
-        </button>
+        {editing ? (
+          <button type="button" className="mt-3 text-sm font-medium text-ink" onClick={() => fileRef.current?.click()}>
+            Đổi ảnh đại diện
+          </button>
+        ) : null}
         <p className="mt-4 text-xs font-semibold text-ice">{data.companyName}</p>
         <p className="font-display text-3xl font-bold">{name || "Nhân viên"}</p>
         <span className="mt-1 rounded-full bg-sand px-3 py-0.5 text-xs font-semibold text-muted">{ROLE_LABEL[data.profile.role]}</span>
       </div>
 
-      <div className="space-y-3 rounded-xl border border-edge bg-card p-4">
-        <label className="block space-y-1 text-sm">
-          Họ tên
-          <input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} required minLength={2} />
-        </label>
-        <div className="space-y-1 text-sm">
-          <p>Số đăng nhập</p>
-          <p className="flex h-12 items-center rounded-md bg-paper px-3 text-base">
-            {data.profile.phone ? displayPhone(data.profile.phone) : "Chưa gắn"}
-          </p>
-        </div>
-        {(
-          [
-            ["Mã nhân viên", data.profile.employeeCode],
-            ["Phòng ban", data.profile.department],
-            ["Chức danh", data.profile.jobTitle],
-            ["Ngày vào làm", data.profile.startedOn ? data.profile.startedOn.split("-").reverse().join("/") : null],
-          ] as const
-        ).map(([label, value]) => (
-          <div key={label} className="space-y-1 text-sm">
-            <p>{label}</p>
-            <p className="flex h-12 items-center rounded-md bg-paper px-3 text-base">{value || "Quản trị chưa cập nhật"}</p>
+      <div className="rounded-xl border border-edge bg-card p-4">
+        {editing ? (
+          <div className="space-y-3">
+            <label className="block space-y-1 text-sm">
+              Họ tên
+              <input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} required minLength={2} autoFocus />
+            </label>
+            <p className="text-xs text-muted">Bạn chỉ tự sửa được họ tên và ảnh đại diện. Các thông tin còn lại do quản trị cập nhật.</p>
+            {error ? <p className="text-sm text-clay">{error}</p> : null}
+            <div className="grid grid-cols-2 gap-2">
+              <button className={secondaryBtn} type="button" onClick={cancelEdit} disabled={busy}>
+                Hủy
+              </button>
+              <button className={primaryBtn} type="submit" disabled={busy}>
+                {busy ? "Đang lưu…" : "Lưu hồ sơ"}
+              </button>
+            </div>
           </div>
-        ))}
-        <p className="text-xs text-muted">Bạn chỉ tự sửa được họ tên và ảnh đại diện. Các thông tin còn lại do quản trị cập nhật.</p>
-        {error ? <p className="text-sm text-clay">{error}</p> : null}
-        {saved ? <p className="text-sm text-ok">Đã lưu hồ sơ.</p> : null}
-        <button className={`${primaryBtn} w-full`} type="submit" disabled={busy}>
-          {busy ? "Đang lưu…" : "Lưu hồ sơ"}
-        </button>
+        ) : (
+          <>
+            <dl className="divide-y divide-line text-sm">
+              {(
+                [
+                  ["Họ tên", data.profile.fullName],
+                  ["Số đăng nhập", data.profile.phone ? displayPhone(data.profile.phone) : "Chưa gắn"],
+                  ["Mã nhân viên", data.profile.employeeCode],
+                  ["Phòng ban", data.profile.department],
+                  ["Chức danh", data.profile.jobTitle],
+                  ["Ngày vào làm", data.profile.startedOn ? data.profile.startedOn.split("-").reverse().join("/") : null],
+                ] as const
+              ).map(([label, value]) => (
+                <div key={label} className="flex items-center justify-between gap-4 py-2.5 first:pt-0">
+                  <dt className="text-muted">{label}</dt>
+                  <dd className={`min-w-0 truncate text-right font-medium ${value ? "" : "text-muted"}`}>{value || "Chưa cập nhật"}</dd>
+                </div>
+              ))}
+            </dl>
+            {saved ? <p className="mt-2 text-sm text-ok">Đã lưu hồ sơ.</p> : null}
+            <button
+              className={`${secondaryBtn} mt-3 w-full`}
+              type="button"
+              onClick={() => {
+                setSaved(false);
+                setEditing(true);
+              }}
+            >
+              Sửa họ tên và ảnh
+            </button>
+          </>
+        )}
       </div>
     </form>
   );
@@ -1494,7 +1528,7 @@ function PeopleTab({ data, onChanged }: { data: WorkspaceData; onChanged: () => 
           <button type="button" className="flex h-10 items-center gap-1 text-sm font-semibold text-ink" onClick={() => setOpenId(null)}>
             <ChevronLeft className="size-4" /> Danh sách
           </button>
-          <PersonCard key={open.userId} person={open} selfId={data.profile.userId} onChanged={onChanged} defaultOpen />
+          <PersonCard key={open.userId} person={open} selfId={data.profile.userId} onChanged={onChanged} />
         </div>
       ) : (
         <>
@@ -1890,6 +1924,7 @@ export function PersonCard({
           {person.department || person.employeeCode ? (
             <p className="text-xs text-muted">{[person.employeeCode, person.department, person.jobTitle].filter(Boolean).join(" · ")}</p>
           ) : null}
+          {person.startedOn ? <p className="text-xs text-muted">Vào làm {person.startedOn.split("-").reverse().join("/")}</p> : null}
         </div>
         <button type="button" className="text-sm text-ink underline" onClick={() => setOpen((v) => !v)}>
           {open ? "Đóng" : "Sửa"}

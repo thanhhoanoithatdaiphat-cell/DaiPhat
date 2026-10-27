@@ -192,7 +192,7 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
               <X className="size-5" />
             </button>
           </div>
-          <PersonCard key={open.userId} person={open} selfId={data.profile.userId} onChanged={reload} defaultOpen />
+          <PersonCard key={open.userId} person={open} selfId={data.profile.userId} onChanged={reload} />
         </aside>
       ) : null}
     </div>

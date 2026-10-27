@@ -1,7 +1,8 @@
-import { useMemo, useRef } from "react";
-import { MapPin, X } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { ExternalLink, MapPin, X } from "lucide-react";
 import type { PersonRow, PunchRow } from "@/lib/attendance-types";
-import { formatMeters, vnTime } from "@/lib/vn-time";
+import { vnTime } from "@/lib/vn-time";
+import { coordText, mapEmbedUrl, mapsUrl } from "@/lib/map-link";
 import { compareByCode } from "@/lib/employee-order";
 import { PunchPhoto, useClickAway } from "./common";
 
@@ -21,6 +22,34 @@ export function groupOffsite(rows: PunchRow[], people: PersonRow[]): Group[] {
   const out = [...map.values()];
   out.forEach((g) => g.punches.sort((a, b) => a.punchedAt.localeCompare(b.punchedAt)));
   return out.sort((a, b) => compareByCode({ employeeCode: a.code, fullName: a.fullName }, { employeeCode: b.code, fullName: b.fullName }));
+}
+
+/** Vị trí người chấm: địa chỉ, link mở bản đồ và bản đồ nhỏ bấm để xem. */
+function Where({ row }: { row: PunchRow }) {
+  const [map, setMap] = useState(false);
+  if (row.lat == null || row.lng == null) {
+    return <p className="text-xs text-muted">Không có toạ độ cho lượt này.</p>;
+  }
+  return (
+    <div className="space-y-2">
+      <p className="flex items-start gap-2 text-sm leading-5">
+        <MapPin className="mt-0.5 size-4 shrink-0 text-clay" />
+        <span>
+          {row.address ?? "Chưa tra được địa chỉ"}
+          <span className="block text-xs text-muted tabular-nums">{coordText(row.lat, row.lng)}</span>
+        </span>
+      </p>
+      <div className="flex gap-2 text-xs font-semibold">
+        <a href={mapsUrl(row.lat, row.lng)} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1 rounded-md bg-night px-3 text-ice">
+          Mở bản đồ <ExternalLink className="size-3" />
+        </a>
+        <button type="button" className="inline-flex h-8 items-center rounded-md border border-line px-3" onClick={() => setMap((v) => !v)}>
+          {map ? "Ẩn bản đồ" : "Xem nhanh"}
+        </button>
+      </div>
+      {map ? <iframe title="Vị trí chấm công" src={mapEmbedUrl(row.lat, row.lng)} className="h-44 w-full rounded-lg border border-line" loading="lazy" /> : null}
+    </div>
+  );
 }
 
 export function OffsiteDrawer({ groups, allowOffsite, onClose }: { groups: Group[]; allowOffsite: boolean; onClose: () => void }) {
@@ -66,12 +95,8 @@ export function OffsiteDrawer({ groups, allowOffsite, onClose }: { groups: Group
                   <div className="flex items-center gap-3">
                     <span className={`w-12 rounded-md py-0.5 text-center text-xs font-semibold ${r.type === "in" ? "bg-[#d5f2e3] text-[#1f6a49]" : "bg-sand text-ink"}`}>{r.type === "in" ? "Vào" : "Ra"}</span>
                     <p className="font-display text-2xl leading-none font-semibold tabular-nums">{vnTime(r.punchedAt)}</p>
-                    <p className="ml-auto text-right text-xs text-muted">
-                      {r.distanceMeters != null ? <span className="font-semibold text-clay">{formatMeters(r.distanceMeters)}</span> : null}
-                      {r.nearestName ? <span className="block">gần {r.nearestName}</span> : null}
-                    </p>
                   </div>
-                  {r.locationSource === "manual" ? <p className="text-xs text-muted">Vị trí nhập thủ công</p> : null}
+                  <Where row={r} />
                   {r.hasPhoto ? <PunchPhoto id={r.id} /> : <p className="text-xs text-muted">Không có ảnh</p>}
                 </li>
               ))}

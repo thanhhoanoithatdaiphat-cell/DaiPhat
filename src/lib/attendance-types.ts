@@ -53,6 +53,10 @@ export type PunchRow = {
   overtimeStatus: OvertimeStatus;
   userId?: string;
   fullName?: string;
+  /** Toạ độ và địa chỉ nơi chấm (chỉ có với lượt chấm ngoài điểm). */
+  lat?: number | null;
+  lng?: number | null;
+  address?: string | null;
 };
 
 export type CorrectionRow = {
@@ -155,12 +159,17 @@ export type PunchResult =
       lateMinutes: number;
       overtimeMinutes: number;
       overtimeStatus: OvertimeStatus;
+      lat: number;
+      lng: number;
+      /** Địa chỉ nơi chấm, chỉ tra khi chấm ngoài điểm (có thể null nếu không tra được). */
+      address: string | null;
     }
   | {
       ok: false;
       nearestName: string;
       distanceMeters: number;
       message: string;
+      address: string | null;
     };
 
 export type RankLists = {

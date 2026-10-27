@@ -24,6 +24,7 @@ import {
   setRole,
   adminUpdateProfile,
   updateProfile,
+  whereAmI,
 } from "@/lib/attendance.functions";
 import type {
   CorrectionRow,
@@ -39,6 +40,7 @@ import type {
   WorkspaceData,
 } from "@/lib/attendance-types";
 import { scheduleOf } from "@/lib/attendance-types";
+import { coordText, mapsUrl } from "@/lib/map-link";
 import { compareByCode } from "@/lib/employee-order";
 import {
   formatMeters,
@@ -167,15 +169,124 @@ function congText(n: number): string {
   return String(n).replace(".", ",");
 }
 
+type SuccessInfo = {
+  type: "in" | "out";
+  result: Extract<PunchResult, { ok: true }>;
+  withPhoto: boolean;
+  manual: boolean;
+};
+
+function clockWithSeconds(iso: string): string {
+  return new Intl.DateTimeFormat("vi-VN", { timeZone: VN, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date(iso));
+}
+
+function weekdayDate(iso: string): string {
+  const w = new Intl.DateTimeFormat("vi-VN", { timeZone: VN, weekday: "long" }).format(new Date(iso));
+  const [y, m, d] = vnDateKey(iso).split("-");
+  return `${w.charAt(0).toUpperCase()}${w.slice(1)}, ${d}/${m}/${y}`;
+}
+
+/** Hộp thông báo hiện sau mỗi lần chấm thành công. */
+function PunchSuccess({ info, lateFrom, onClose, onDetail }: { info: SuccessInfo; lateFrom: number; onClose: () => void; onDetail: () => void }) {
+  const { type, result, withPhoto, manual } = info;
+  const late = type === "in" && result.lateMinutes >= lateFrom;
+  const status = result.offsite
+    ? { text: "Ngoài điểm", cls: "bg-clay/20 text-clay" }
+    : late
+      ? { text: `Muộn ${result.lateMinutes} phút`, cls: "bg-clay/20 text-clay" }
+      : { text: type === "in" ? "Đúng giờ" : "Đã ra ca", cls: "bg-ok/20 text-ok" };
+  const via = withPhoto ? (manual ? "Hình ảnh + vị trí nhập tay" : "Hình ảnh có vị trí") : manual ? "Vị trí nhập tay" : "Vị trí GPS";
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const note =
+    result.overtimeStatus === "pending"
+      ? `Tăng ca ${minutesToHm(result.overtimeMinutes)}, chờ duyệt mới được tính.`
+      : result.offsite
+        ? "Quản trị và người duyệt đã được báo."
+        : late
+          ? "Bạn vào muộn hôm nay. Mai mình cố gắng đúng giờ nhé!"
+          : type === "in"
+          ? "Có bạn, cả đội thêm vui. Hôm nay mình cùng bứt phá nhé!"
+          : "Cảm ơn bạn đã nỗ lực hôm nay. Nghỉ ngơi thật tốt nhé!";
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-5 py-6 backdrop-blur-sm"
+      onPointerDown={(e) => e.target === e.currentTarget && onClose()}
+      role="dialog"
+      aria-modal="true"
+      aria-label={type === "in" ? "Vào ca thành công" : "Ra ca thành công"}
+    >
+      <div className="max-h-full w-full max-w-sm overflow-y-auto rounded-3xl border border-edge bg-card shadow-2xl">
+        <div className="bg-gradient-to-r from-[#ffb400] to-[#ff8a1f] px-5 py-4 text-center">
+          <h2 className="font-display text-2xl font-bold text-night">✦ {type === "in" ? "Vào ca" : "Ra ca"} thành công ✦</h2>
+        </div>
+        <div className="space-y-3 px-6 pt-5 pb-6 text-center">
+          <svg viewBox="0 0 200 110" className="mx-auto h-24 w-auto" aria-hidden="true">
+            <rect x="22" y="50" width="34" height="54" rx="2" fill="#4a3d31" opacity=".6" />
+            <rect x="148" y="40" width="30" height="64" rx="2" fill="#4a3d31" opacity=".6" />
+            <rect x="60" y="14" width="80" height="80" rx="12" fill="none" stroke="#ffb400" strokeWidth="3" />
+            <path d="M60 26a12 12 0 0 1 12-12h56a12 12 0 0 1 12 12v12H60z" fill="#ffb400" />
+            {[78, 92, 106, 120].map((x) => (
+              <line key={x} x1={x} y1="8" x2={x} y2="22" stroke="#fff3d6" strokeWidth="3" strokeLinecap="round" />
+            ))}
+            {[72, 88, 104, 120].map((x, i) => (
+              <rect key={x} x={x} y="48" width="12" height="12" rx="3" fill={i === 2 ? "#6fd3a0" : "#ffb400"} />
+            ))}
+            {[104, 120].map((x) => (
+              <rect key={x} x={x} y="66" width="12" height="12" rx="3" fill="#ffb400" />
+            ))}
+            <path d="M100 54l3 3 6-6" fill="none" stroke="#1c1410" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M44 24v8M40 28h8M168 22v6M165 25h6" stroke="#ffb400" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          <p className="font-display text-5xl leading-none font-bold text-ok tabular-nums">{clockWithSeconds(result.punchedAt)}</p>
+          <p className="text-sm text-muted">{weekdayDate(result.punchedAt)}</p>
+          <p className="text-sm text-muted">
+            qua <span className="ml-1 inline-block rounded-full border border-line bg-paper px-3 py-1 text-ink">{via}</span>
+          </p>
+          <p className="flex items-center justify-center gap-2 text-sm">
+            <MapPin className="size-5 shrink-0 text-ice" />
+            <span>
+              {result.offsite
+                ? (result.address ?? `Toạ độ ${coordText(result.lat, result.lng)}`)
+                : `${result.nearestName} · cách ${formatMeters(result.distanceMeters)}`}
+            </span>
+          </p>
+          {result.offsite ? (
+            <a href={mapsUrl(result.lat, result.lng)} target="_blank" rel="noopener noreferrer" className="inline-block text-sm font-semibold text-ice underline">
+              Xem vị trí trên bản đồ
+            </a>
+          ) : null}
+          <span className={`inline-block rounded-full px-4 py-1 text-sm font-semibold ${status.cls}`}>{status.text}</span>
+          <p className="border-t border-line pt-3 text-sm leading-6 text-muted">{note}</p>
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <button type="button" className={secondaryBtn} onClick={onClose}>
+              Đóng
+            </button>
+            <button type="button" className={primaryBtn} onClick={onDetail}>
+              Xem chi tiết
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PunchPanel({
   data,
   onChanged,
   onGoRequests,
+  onGoHistory,
 }: {
   data: WorkspaceData;
   onChanged: () => Promise<void>;
   onGoRequests: () => void;
+  onGoHistory?: () => void;
 }) {
+  const [success, setSuccess] = useState<SuccessInfo | null>(null);
   const [cameraFor, setCameraFor] = useState<"in" | "out" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -215,6 +326,35 @@ export function PunchPanel({
     }
     return best;
   })();
+  const outside = Boolean(nearest && nearest.dist > nearest.radius);
+  const [here, setHere] = useState<string | null>(null);
+  const [hereDone, setHereDone] = useState(false);
+  const hereKey = geo.status === "ok" && outside ? `${geo.lat.toFixed(4)},${geo.lng.toFixed(4)}` : "";
+  useEffect(() => {
+    setHereDone(false);
+    if (!hereKey || geo.status !== "ok") {
+      setHere(null);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      whereAmI({ data: { lat: geo.lat, lng: geo.lng } })
+        .then((r) => {
+          if (!cancelled) {
+            setHere(r.address);
+            setHereDone(true);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setHereDone(true);
+        });
+    }, 1200);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hereKey]);
   const gpsLabel =
     geo.status === "ok"
       ? geo.accuracy <= 50
@@ -235,6 +375,7 @@ export function PunchPanel({
     try {
       const next = await punch({ data: { type, lat, lng, photo, locationSource, accuracy } });
       setResult(next);
+      if (next.ok) setSuccess({ type, result: next, withPhoto: Boolean(photo), manual: locationSource === "manual" });
       setGeoFailed(null);
       setPendingPhoto("");
       if (next.ok) await onChanged();
@@ -327,13 +468,13 @@ export function PunchPanel({
         <MapPin className="size-5 shrink-0 text-ice" strokeWidth={2} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-ink">
-            {nearest?.name ?? (active[0]?.name || "Điểm chấm công")}
+            {outside ? "Vị trí của bạn" : (nearest?.name ?? (active[0]?.name || "Điểm chấm công"))}
           </p>
-          <p className={`pz-hide-tight truncate text-xs ${nearest && nearest.dist > nearest.radius ? "text-clay" : "text-muted"}`}>
+          <p className={`pz-hide-tight text-xs ${outside ? "line-clamp-2 leading-4 text-clay" : "truncate text-muted"}`}>
             {nearest
               ? nearest.dist <= nearest.radius
                 ? `Trong phạm vi · cách ${formatMeters(nearest.dist)}`
-                : `Ngoài phạm vi · cách ${formatMeters(nearest.dist)}`
+                : `Ngoài phạm vi · ${here ?? (hereDone && geo.status === "ok" ? `toạ độ ${coordText(geo.lat, geo.lng)}` : "đang tra địa chỉ…")}`
               : active.length === 0
                 ? "Chưa có điểm chấm công đang bật"
                 : geo.status === "denied"
@@ -375,17 +516,10 @@ export function PunchPanel({
         {active.length === 0 && !data.settings.allowOffsite ? (
           <p className="mt-2 text-center text-sm text-clay">Chưa có điểm chấm công đang bật.</p>
         ) : null}
-        {result ? (
-          <p className={`mt-2 max-h-16 w-full overflow-y-auto rounded-lg px-3 py-1.5 text-xs leading-5 ${result.ok ? "bg-card text-ink" : "bg-clay text-night"}`}>
-            <span className="font-semibold">{result.ok ? (result.offsite ? "Đã ghi, ngoài điểm. " : "Đã ghi nhận. ") : "Ngoài vị trí cho phép. "}</span>
-            {result.ok
-              ? result.offsite
-                ? "Quản trị và người duyệt đã được báo."
-                : `Tại ${result.nearestName}, cách tâm ${formatMeters(result.distanceMeters)}.`
-              : result.message}
-            {result.ok && result.lateMinutes >= data.settings.lateMinutes ? ` Muộn ${result.lateMinutes} phút.` : ""}
-            {result.ok && vnWeekday(result.punchedAt) === 0 && result.overtimeStatus !== "pending" ? " Chủ nhật tính tăng ca, chờ duyệt khi ra ca." : ""}
-            {result.ok && result.overtimeStatus === "pending" ? ` Tăng ca ${minutesToHm(result.overtimeMinutes)}, chờ duyệt mới được tính.` : ""}
+        {result && !result.ok ? (
+          <p className="mt-2 max-h-16 w-full overflow-y-auto rounded-lg bg-clay px-3 py-1.5 text-xs leading-5 text-night">
+            <span className="font-semibold">Ngoài vị trí cho phép. </span>
+            {result.message}
           </p>
         ) : null}
         {error ? <p className="mt-2 max-h-16 w-full overflow-y-auto text-center text-xs text-clay">{error}</p> : null}
@@ -395,6 +529,18 @@ export function PunchPanel({
           </button>
         ) : null}
       </div>
+
+      {success ? (
+        <PunchSuccess
+          info={success}
+          lateFrom={data.settings.lateMinutes}
+          onClose={() => setSuccess(null)}
+          onDetail={() => {
+            setSuccess(null);
+            onGoHistory?.();
+          }}
+        />
+      ) : null}
 
       <div className="mx-5 grid shrink-0 grid-cols-2 gap-3 md:mx-8">
         <div className="rounded-xl border border-line bg-card px-4 py-2.5">
@@ -1473,9 +1619,15 @@ function ApprovalCard({ data, onChanged }: { data: WorkspaceData; onChanged: () 
             <p className="text-sm font-medium">{row.fullName ?? "Nhân viên"}</p>
             <p className="text-xs text-muted">
               {vnTime(row.punchedAt)} · {row.type === "in" ? "Vào" : "Ra"}
-              {row.nearestName ? ` · gần ${row.nearestName}` : ""}
-              {row.distanceMeters != null ? ` · ${formatMeters(row.distanceMeters)}` : ""}
             </p>
+            {row.lat != null && row.lng != null ? (
+              <p className="mt-0.5 text-xs">
+                {row.address ?? `Toạ độ ${coordText(row.lat, row.lng)}`}{" "}
+                <a href={mapsUrl(row.lat, row.lng)} target="_blank" rel="noopener noreferrer" className="font-semibold text-ice underline">
+                  Mở bản đồ
+                </a>
+              </p>
+            ) : null}
             {row.hasPhoto ? (
               <button
                 type="button"

@@ -255,6 +255,53 @@ async function requireProfile(userId: string) {
   return loadProfile(userId);
 }
 
+type GeoJson = { name?: string; display_name?: string; address?: Record<string, string> };
+
+async function nominatim(lat: number, lng: number, zoom: number): Promise<GeoJson | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3500);
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=${zoom}&accept-language=vi&lat=${lat}&lon=${lng}`;
+    const res = await fetch(url, { signal: ctrl.signal, headers: { "User-Agent": "VaoCa-ChamCong/1.0 (noithatdaiphat)" } });
+    return res.ok ? ((await res.json()) as GeoJson) : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function roadOf(j: GeoJson): string {
+  const a = j.address ?? {};
+  return a.road || a.pedestrian || a.residential || a.path || a.footway || a.highway || a.service || "";
+}
+
+/**
+ * Tra địa chỉ từ toạ độ (OpenStreetMap Nominatim), ưu tiên tên đường: "Số nhà + tên đường, phường/xã, quận/huyện, tỉnh/thành".
+ * Lỗi hoặc quá chậm thì trả null, không chặn việc chấm công.
+ */
+async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+  let j = await nominatim(lat, lng, 18);
+  if (!j) return null;
+  // Chưa ra tên đường thì thử lại ở mức xa hơn một chút (đường lớn gần đó).
+  if (!roadOf(j)) {
+    const wider = await nominatim(lat, lng, 16);
+    if (wider && roadOf(wider)) j = wider;
+  }
+  const a = j.address ?? {};
+  const road = roadOf(j);
+  const street = [a.house_number, road].filter(Boolean).join(" ");
+  const parts = [
+    street || j.name || a.amenity || a.building,
+    a.quarter || a.suburb || a.neighbourhood || a.village || a.hamlet,
+    a.city_district || a.district || a.county,
+    a.city || a.town || a.state || a.province,
+  ].filter(Boolean) as string[];
+  const text = parts.length >= 2 ? parts.join(", ") : (j.display_name ?? "");
+  const out = text.trim().slice(0, 220);
+  return out ? (road ? out : `${out} (chưa rõ tên đường)`) : null;
+}
+
 function mapPunch(row: {
   id: number;
   type: "in" | "out";
@@ -270,6 +317,9 @@ function mapPunch(row: {
   overtime_status?: OvertimeStatus;
   user_id?: string;
   full_name?: string;
+  lat?: number | null;
+  lng?: number | null;
+  address?: string | null;
 }): PunchRow {
   return {
     id: Number(row.id),
@@ -286,6 +336,9 @@ function mapPunch(row: {
     overtimeStatus: row.overtime_status ?? "none",
     userId: row.user_id,
     fullName: row.full_name,
+    lat: row.lat == null ? null : Number(row.lat),
+    lng: row.lng == null ? null : Number(row.lng),
+    address: row.address ?? null,
   };
 }
 
@@ -441,9 +494,12 @@ export const getWorkspace = createServerFn({ method: "POST" })
         offsite: boolean;
         user_id: string;
         full_name: string;
+        lat: number | null;
+        lng: number | null;
+        address: string | null;
       }>`
         select a.id, a.type, a.punched_at, a.status, a.nearest_name, a.distance_meters,
-               a.location_source, a.offsite,
+               a.location_source, a.offsite, a.lat, a.lng, a.address,
                (a.photo_data is not null and a.photo_data <> '') as has_photo,
                a.user_id, p.full_name
         from attendances a
@@ -646,6 +702,20 @@ export const listHistory = createServerFn({ method: "POST" })
     return rows.map(mapPunch);
   });
 
+/** Địa chỉ hiện tại của người dùng (hiện trên màn chấm công khi đang ngoài phạm vi). */
+export const whereAmI = createServerFn({ method: "POST" })
+  .validator((input: { lat: number; lng: number }) => {
+    if (!Number.isFinite(input.lat) || Math.abs(input.lat) > 90 || !Number.isFinite(input.lng) || Math.abs(input.lng) > 180) {
+      throw new Error("Toạ độ không hợp lệ");
+    }
+    return { lat: Math.round(input.lat * 1e5) / 1e5, lng: Math.round(input.lng * 1e5) / 1e5 };
+  })
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) => {
+    await requireProfile(context.userId);
+    return { address: await reverseGeocode(data.lat, data.lng) };
+  });
+
 export const punch = createServerFn({ method: "POST" })
   .validator(
     (input: {
@@ -742,16 +812,16 @@ export const punch = createServerFn({ method: "POST" })
     }
     const distanceMeters = best ? Math.round(best.dist) : 0;
     const offsite = !best?.inside;
+    // Chấm ngoài điểm: báo đúng vị trí người chấm (địa chỉ), không báo khoảng cách theo bán kính.
+    const address = offsite ? await reverseGeocode(data.lat, data.lng) : null;
     if (offsite && !settings.allowOffsite) {
-      const prettyDistance =
-        distanceMeters < 1000
-          ? `${distanceMeters} m`
-          : `${(distanceMeters / 1000).toFixed(1).replace(".", ",")} km`;
+      const where = address ?? `toạ độ ${data.lat.toFixed(5)}, ${data.lng.toFixed(5)}`;
       return {
         ok: false,
         nearestName: best?.name ?? "",
         distanceMeters,
-        message: `Bạn đang ở ngoài vùng cho phép. Điểm gần nhất là "${best?.name ?? "chưa có"}" (cách ${prettyDistance}). Hãy đến gần hơn hoặc nhờ quản trị bật "cho phép ngoài điểm".`,
+        address,
+        message: `Bạn đang ở ${where}, ngoài vùng chấm công. Hãy đến điểm làm việc hoặc nhờ quản trị bật "cho phép ngoài điểm".`,
       };
     }
     const punchedAt = new Date().toISOString();
@@ -816,11 +886,11 @@ export const punch = createServerFn({ method: "POST" })
       insert into attendances (
         user_id, company_id, type, punched_at, lat, lng, photo_data, status,
         nearest_name, distance_meters, location_source, offsite,
-        late_minutes, overtime_minutes, overtime_status
+        late_minutes, overtime_minutes, overtime_status, address
       ) values (
         ${profile.userId}, ${profile.companyId}, ${data.type}, ${punchedAt}::timestamptz, ${data.lat}, ${data.lng},
         ${photo || null}, 'valid', ${best?.name ?? null}, ${best ? distanceMeters : null},
-        ${data.locationSource}, ${offsite}, ${lateMinutes}, ${overtimeMinutes}, ${overtimeStatus}
+        ${data.locationSource}, ${offsite}, ${lateMinutes}, ${overtimeMinutes}, ${overtimeStatus}, ${address}
       )
       returning punched_at
     `;
@@ -833,6 +903,9 @@ export const punch = createServerFn({ method: "POST" })
       lateMinutes,
       overtimeMinutes,
       overtimeStatus,
+      lat: data.lat,
+      lng: data.lng,
+      address,
     };
   });
 

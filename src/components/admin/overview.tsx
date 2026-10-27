@@ -6,6 +6,7 @@ import type { PersonRow } from "@/lib/attendance-types";
 import { todayLong, vnDateKey, vnMonthKey, vnTime, minutesToHm } from "@/lib/vn-time";
 import type { AdminCtx } from "./app";
 import { KIND_LABEL, LEAVE_LABEL, shortDate } from "./common";
+import { groupOffsite, OffsiteDrawer } from "./offsite";
 
 type Filter = "all" | "working" | "done" | "none" | "late";
 type Status = "late" | "working" | "done" | "none";
@@ -51,6 +52,7 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
   const [busyKey, setBusyKey] = useState("");
   const [rejectKey, setRejectKey] = useState("");
   const [note, setNote] = useState("");
+  const [offsiteOpen, setOffsiteOpen] = useState(false);
 
   const lateMin = data.settings.lateMinutes;
   const people = useMemo(() => data.teamToday.filter((p) => p.isActive !== false), [data.teamToday]);
@@ -70,6 +72,11 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
   const done = inScope.filter((p) => p.lastType === "out");
   const none = inScope.filter((p) => p.lastType === null);
   const lateCount = inScope.filter((p) => statusOf(p) === "late").length;
+
+  const offsiteGroups = useMemo(() => {
+    const ids = new Set(inScope.map((p) => p.userId));
+    return groupOffsite(data.offsiteToday.filter((r) => r.userId && ids.has(r.userId)), people);
+  }, [data.offsiteToday, inScope, people]);
 
   const stats: { id: Filter; label: string; value: number; tone: string }[] = [
     { id: "working", label: "Đang làm", value: working.length, tone: "text-ice" },
@@ -202,7 +209,7 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-5">
           {stats.map((s) => (
             <button
               key={s.id}
@@ -216,8 +223,21 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
               <span className={`mt-1.5 block h-0.5 w-8 ${filter === s.id ? "bg-ice" : "bg-transparent"}`} />
             </button>
           ))}
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => setOffsiteOpen((v) => !v)}
+            aria-pressed={offsiteOpen}
+            className="col-span-2 border-t border-[#fff3d6]/15 pt-4 text-left sm:col-span-1 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-4"
+          >
+            <p className="text-xs text-[#fff3d6]/80">Ngoài điểm</p>
+            <p className={`font-display text-5xl leading-none font-bold tabular-nums ${offsiteGroups.length ? "text-[#ffc247]" : "text-[#fff3d6]"}`}>{offsiteGroups.length}</p>
+            <span className={`mt-1.5 block h-0.5 w-8 ${offsiteOpen ? "bg-ice" : "bg-transparent"}`} />
+          </button>
         </div>
       </section>
+
+      {offsiteOpen ? <OffsiteDrawer groups={offsiteGroups} allowOffsite={data.settings.allowOffsite} onClose={() => setOffsiteOpen(false)} /> : null}
 
       {message ? <p className="rounded-lg bg-sand px-4 py-2 text-sm text-ink">{message}</p> : null}
 

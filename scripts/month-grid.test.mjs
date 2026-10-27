@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildCell, monthDayKeys, summarize, weekdayOf, workedMinutes } from "../src/lib/month-grid.ts";
+import { buildCell, countableOvertime, monthDayKeys, summarize, weekdayOf, workedMinutes } from "../src/lib/month-grid.ts";
 
 const hm = (iso) => iso.slice(11, 16);
 const p = (type, at, extra = {}) => ({
@@ -119,4 +119,26 @@ test("giờ làm trừ nghỉ trưa, vào sớm/ra muộn không cộng thêm tr
   const c = cell(d, pair("07:30", "17:30"), { schedule: sc });
   assert.equal(c.workedMinutes, 480);
   assert.equal(c.cong, 1);
+});
+
+test("đơn tăng ca: chỉ tính giờ nghỉ trưa", () => {
+  const sc = { start: "07:30", end: "17:30", lunchStart: "11:30", lunchEnd: "13:30" };
+  assert.equal(countableOvertime("11:30", "13:30", sc), 120); // cả buổi trưa
+  assert.equal(countableOvertime("12:00", "13:00", sc), 60);
+  assert.equal(countableOvertime("11:00", "14:00", sc), 120); // phần trong ca không tính
+  assert.equal(countableOvertime("06:30", "07:30", sc), 0); // trước giờ vào ca: không tính
+  assert.equal(countableOvertime("17:30", "20:00", sc), 0); // sau giờ ra: tự tính khi chấm ra
+  assert.equal(countableOvertime("13:30", "12:00", sc), 0);
+});
+
+test("tăng ca theo đơn đã duyệt cộng vào tổng tăng ca của tháng", () => {
+  const d = "2026-10-12";
+  const c = cell(d, [p("in", `${d}T01:00:00Z`), p("out", `${d}T10:00:00Z`)], { extraOvertimeMinutes: 90 });
+  assert.equal(c.extraOvertimeMinutes, 90);
+  assert.equal(summarize([c]).overtimeMinutes, 90);
+});
+
+test("giờ tăng ca theo đơn không mất khi ngày đó không có lượt chấm", () => {
+  const c = cell("2026-10-12", [], { extraOvertimeMinutes: 120 });
+  assert.equal(summarize([c]).overtimeMinutes, 120);
 });

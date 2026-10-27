@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Search, X } from "lucide-react";
 import { errorText } from "@/components/ui";
-import { reviewCorrection, reviewLeave, reviewOvertime } from "@/lib/attendance.functions";
-import type { CorrectionRow, LeaveRow, PunchRow } from "@/lib/attendance-types";
+import { reviewCorrection, reviewLeave, reviewOvertime, reviewOvertimeRequest } from "@/lib/attendance.functions";
+import type { CorrectionRow, LeaveRow, OvertimeRequestRow, PunchRow } from "@/lib/attendance-types";
 import { formatMeters, minutesToHm, vnDateKey, vnTime } from "@/lib/vn-time";
 import type { AdminCtx } from "./app";
 import { ago, Card, Chip, KIND_LABEL, LEAVE_LABEL, PageHero, PunchPhoto, shortDate } from "./common";
@@ -10,7 +10,8 @@ import { ago, Card, Chip, KIND_LABEL, LEAVE_LABEL, PageHero, PunchPhoto, shortDa
 type Item =
   | { key: string; kind: "correction"; id: number; userId: string; name: string; at: string; row: CorrectionRow }
   | { key: string; kind: "overtime"; id: number; userId: string; name: string; at: string; row: PunchRow }
-  | { key: string; kind: "leave"; id: number; userId: string; name: string; at: string; row: LeaveRow };
+  | { key: string; kind: "leave"; id: number; userId: string; name: string; at: string; row: LeaveRow }
+  | { key: string; kind: "otreq"; id: number; userId: string; name: string; at: string; row: OvertimeRequestRow };
 
 type Tab = "all" | "correction" | "leave" | "overtime" | "done";
 
@@ -25,7 +26,7 @@ type Decided = {
 };
 
 export function InboxView({ ctx }: { ctx: AdminCtx }) {
-  const { data, corrections, leaves, reload } = ctx;
+  const { data, corrections, leaves, overtimeRequests, reload } = ctx;
   const selfId = data.profile.userId;
   const [tab, setTab] = useState<Tab>("all");
   const [cursor, setCursor] = useState(0);
@@ -53,8 +54,11 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
     const c: Item[] = leaves
       .filter((l) => l.status === "pending")
       .map((l) => ({ key: `l${l.id}`, kind: "leave", id: l.id, userId: l.userId, name: l.fullName, at: l.createdAt, row: l }));
-    return [...a, ...b, ...c].sort((x, y) => y.at.localeCompare(x.at));
-  }, [corrections, leaves, data.overtimePending]);
+    const d: Item[] = overtimeRequests
+      .filter((o) => o.status === "pending")
+      .map((o) => ({ key: `r${o.id}`, kind: "otreq", id: o.id, userId: o.userId, name: o.fullName, at: o.createdAt, row: o }));
+    return [...a, ...b, ...c, ...d].sort((x, y) => y.at.localeCompare(x.at));
+  }, [corrections, leaves, overtimeRequests, data.overtimePending]);
 
   const info = useMemo(() => new Map(data.teamToday.map((p) => [p.userId, p])), [data.teamToday]);
   const needle = query.trim().toLowerCase();
@@ -81,11 +85,22 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
         at: l.reviewedAt,
         note: l.reviewNote,
       }));
-    return [...a, ...b]
+    const c: Decided[] = overtimeRequests
+      .filter((o) => o.status !== "pending")
+      .map((o) => ({
+        key: `r${o.id}`,
+        name: o.fullName,
+        text: `Đơn tăng ca · ${shortDate(o.workDate)} · ${o.startTime}–${o.endTime} (${minutesToHm(o.minutes)})`,
+        status: o.status as "approved" | "rejected",
+        by: o.reviewedByName,
+        at: o.reviewedAt,
+        note: o.reviewNote,
+      }));
+    return [...a, ...b, ...c]
       .filter((d) => !needle || d.name.toLowerCase().includes(needle))
       .sort((x, y) => (y.at ?? "").localeCompare(x.at ?? ""));
-  }, [corrections, leaves, needle]);
-  const list = pending.filter((i) => (tab === "all" || i.kind === tab) && (!needle || i.name.toLowerCase().includes(needle)));
+  }, [corrections, leaves, overtimeRequests, needle]);
+  const list = pending.filter((i) => (tab === "all" || i.kind === tab || (tab === "overtime" && i.kind === "otreq")) && (!needle || i.name.toLowerCase().includes(needle)));
   const safeCursor = Math.min(cursor, Math.max(0, list.length - 1));
   const current = tab === "done" ? undefined : list[safeCursor];
 
@@ -108,7 +123,9 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
           ? reviewCorrection({ data: { id: i.id, decision, reviewNote: reason } })
           : i.kind === "leave"
             ? reviewLeave({ data: { id: i.id, decision, reviewNote: reason } })
-            : reviewOvertime({ data: { id: i.id, decision } }),
+            : i.kind === "otreq"
+              ? reviewOvertimeRequest({ data: { id: i.id, decision, reviewNote: reason } })
+              : reviewOvertime({ data: { id: i.id, decision } }),
       ),
     );
     const failed = results.flatMap((r, idx) => (r.status === "rejected" ? [`${usable[idx].name}: ${errorText(r.reason)}`] : []));
@@ -161,7 +178,7 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
     { id: "all", label: "Tất cả", count: pending.length },
     { id: "correction", label: "Sửa công", count: pending.filter((i) => i.kind === "correction").length },
     { id: "leave", label: "Nghỉ phép", count: pending.filter((i) => i.kind === "leave").length },
-    { id: "overtime", label: "Tăng ca", count: pending.filter((i) => i.kind === "overtime").length },
+    { id: "overtime", label: "Tăng ca", count: pending.filter((i) => i.kind === "overtime" || i.kind === "otreq").length },
     { id: "done", label: "Đã xử lý" },
   ];
   const picked = list.filter((i) => checked.has(i.key));
@@ -292,7 +309,7 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
                           />
                         </td>
                         <td className="px-2 py-3 whitespace-nowrap">
-                          <Chip tone="ink">{i.kind === "correction" ? "Sửa công" : i.kind === "leave" ? "Nghỉ phép" : "Tăng ca"}</Chip>
+                          <Chip tone="ink">{i.kind === "correction" ? "Sửa công" : i.kind === "leave" ? "Nghỉ phép" : i.kind === "otreq" ? "Đơn tăng ca" : "Tăng ca"}</Chip>
                         </td>
                         <td className="px-2 py-3">
                           <p className="font-medium">{i.name}</p>
@@ -374,6 +391,7 @@ function summary(i: Item): string {
     return `${KIND_LABEL[c.kind] ?? c.kind} · ${shortDate(c.attendanceDate)} · xin ${c.punchType === "in" ? "vào" : "ra"} ${c.requestedTime}`;
   }
   if (i.kind === "leave") return `${LEAVE_LABEL[i.row.kind] ?? i.row.kind} · ngày ${shortDate(i.row.leaveDate)}`;
+  if (i.kind === "otreq") return `${i.row.startTime}–${i.row.endTime} · ${shortDate(i.row.workDate)} · tính ${minutesToHm(i.row.minutes)}`;
   return `Tăng ca ${minutesToHm(i.row.overtimeMinutes)} · ${shortDate(vnDateKey(i.row.punchedAt))}`;
 }
 
@@ -405,6 +423,21 @@ function Detail({ item }: { item: Item }) {
         <p className="font-display text-4xl leading-tight font-semibold">Xin nghỉ ngày {shortDate(l.leaveDate)}</p>
         <p className="text-sm text-muted">Gửi {ago(l.createdAt)}. Duyệt xong, ngày này hiện trong bảng công là nghỉ có phép và không tính vắng.</p>
         <blockquote className="border-l-4 border-ice bg-paper px-4 py-3 text-sm">{l.note}</blockquote>
+      </div>
+    );
+  }
+  if (item.kind === "otreq") {
+    const o = item.row;
+    return (
+      <div className="space-y-3">
+        <Chip tone="ink">Đơn tăng ca</Chip>
+        <p className="font-display text-4xl leading-tight font-semibold">
+          {o.startTime}–{o.endTime}
+        </p>
+        <p className="text-sm text-muted">
+          Ngày {shortDate(o.workDate)} · gửi {ago(o.createdAt)}. Duyệt xong, {minutesToHm(o.minutes)} được cộng vào tăng ca của tháng (chỉ tính phần giờ nghỉ trưa).
+        </p>
+        <blockquote className="border-l-4 border-ice bg-paper px-4 py-3 text-sm">{o.note}</blockquote>
       </div>
     );
   }

@@ -87,6 +87,18 @@ export function congOf(minutes: number, full: number, half: number): 0 | 0.5 | 1
   return 0;
 }
 
+/**
+ * Số phút tăng ca được tính của một đơn tăng ca: chỉ phần nằm trong giờ nghỉ trưa.
+ * Phần trong giờ ca đã là giờ làm thường, phần sau giờ ra ca đã tự tính khi chấm ra nên không tính lại ở đây.
+ */
+export function countableOvertime(start: string, end: string, sc: Schedule): number {
+  const a = hmToMin(start);
+  const b = hmToMin(end);
+  if (b <= a) return 0;
+  const overlap = (x1: number, x2: number) => Math.max(0, Math.min(b, x2) - Math.max(a, x1));
+  return overlap(hmToMin(sc.lunchStart), hmToMin(sc.lunchEnd));
+}
+
 export type DayCell = {
   kind: CellKind;
   label: string;
@@ -99,6 +111,8 @@ export type DayCell = {
   lateMinutes: number;
   overtimeMinutes: number;
   overtimeStatus: MonthPunch["overtimeStatus"];
+  /** Tăng ca theo đơn đã duyệt (giờ nghỉ trưa), cộng riêng với tăng ca khi chấm ra. */
+  extraOvertimeMinutes: number;
   offsite: boolean;
   corrected: boolean;
   /** Loại ngày: thường, Chủ nhật hay ngày lễ (lễ ưu tiên hơn Chủ nhật). */
@@ -126,6 +140,8 @@ export function buildCell(input: {
   isHoliday?: boolean;
   hasApprovedLeave?: boolean;
   leaveKind?: string | null;
+  /** Tổng phút tăng ca theo đơn đã duyệt trong ngày. */
+  extraOvertimeMinutes?: number;
   /** Ngưỡng đi muộn của công ty (phút). Muộn khi số phút >= ngưỡng, giống các màn khác. */
   lateThreshold: number;
   /** Lịch ca có nghỉ trưa; bỏ trống thì cộng thẳng giờ vào–ra như trước. */
@@ -147,6 +163,7 @@ export function buildCell(input: {
     lateMinutes: 0,
     overtimeMinutes: 0,
     overtimeStatus: "none" as const,
+    extraOvertimeMinutes: Math.max(0, input.extraOvertimeMinutes ?? 0),
     offsite: false,
     corrected: false,
   };
@@ -174,6 +191,7 @@ export function buildCell(input: {
     lateMinutes: first?.lateMinutes ?? 0,
     overtimeMinutes: last?.overtimeMinutes ?? 0,
     overtimeStatus: last?.overtimeStatus ?? ("none" as const),
+    extraOvertimeMinutes: Math.max(0, input.extraOvertimeMinutes ?? 0),
     offsite: sorted.some((p) => p.offsite),
     corrected: sorted.some((p) => p.status === "corrected"),
   };
@@ -232,6 +250,7 @@ export function summarize(cells: DayCell[], rates: PayRates = { sunday: DEFAULT_
     if (c.kind === "absent") s.absent += 1;
     if (c.kind === "partial") s.partial += 1;
     if (c.overtimeStatus === "approved") s.overtimeMinutes += c.overtimeMinutes;
+    s.overtimeMinutes += c.extraOvertimeMinutes;
   }
   s.congQuyDoi = Math.round((s.cong + s.sundayCong * rates.sunday + s.holidayCong * rates.holiday) * 100) / 100;
   return s;

@@ -91,6 +91,23 @@ export type LeaveRow = {
   reviewedAt: string | null;
 };
 
+export type OvertimeRequestRow = {
+  id: number;
+  userId: string;
+  fullName: string;
+  workDate: string;
+  startTime: string;
+  endTime: string;
+  /** Số phút được tính (chỉ phần nằm trong giờ nghỉ trưa). */
+  minutes: number;
+  note: string;
+  status: "pending" | "approved" | "rejected";
+  reviewNote: string | null;
+  createdAt: string;
+  reviewedByName: string | null;
+  reviewedAt: string | null;
+};
+
 export type HolidayRow = { date: string; name: string };
 
 export type PersonRow = {
@@ -199,6 +216,8 @@ export type HistoryData = {
   punches: Record<string, Record<string, MonthPunch[]>>;
   holidays: string[];
   leaves: Record<string, Record<string, string>>;
+  /** userId -> yyyy-mm-dd -> phút tăng ca theo đơn đã duyệt. */
+  extraOt?: Record<string, Record<string, number>>;
   /** Các tháng trong khoảng đã chốt công. */
   lockedMonths: string[];
   /** true khi số lượt chấm vượt giới hạn và danh sách bị cắt bớt. */
@@ -232,6 +251,8 @@ export type MonthGrid = {
   punches: Record<string, Record<string, MonthPunch[]>>;
   holidays?: string[];
   leaves?: Record<string, Record<string, string>>;
+  /** userId -> yyyy-mm-dd -> phút tăng ca theo đơn đã duyệt. */
+  extraOt?: Record<string, Record<string, number>>;
   lock: { lockedAt: string; lockedByName: string } | null;
 };
 

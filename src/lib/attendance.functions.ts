@@ -11,6 +11,7 @@ import type {
   LocationRow,
   MonthGrid,
   MySummary,
+  OvertimeRequestRow,
   OvertimeStatus,
   PersonRow,
   ProfileRow,
@@ -26,6 +27,7 @@ import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
 import {
   buildCell,
   congOf,
+  countableOvertime,
   monthDayKeys,
   summarize,
   workedMinutes as sumWorked,
@@ -302,6 +304,29 @@ async function reverseGeocode(lat: number, lng: number): Promise<string | null> 
   return out ? (road ? out : `${out} (chưa rõ tên đường)`) : null;
 }
 
+/** Phút tăng ca theo đơn đã duyệt: userId -> ngày -> phút. */
+async function loadExtraOt(
+  sql: Awaited<ReturnType<typeof getSql>>,
+  companyId: string,
+  from: string,
+  toExclusive: string,
+  userId?: string,
+): Promise<Record<string, Record<string, number>>> {
+  const rows = await sql<{ user_id: string; work_date: unknown; minutes: number }>`
+    select user_id, work_date, minutes from overtime_requests
+    where company_id = ${companyId} and status = 'approved'
+      and work_date >= ${from}::date and work_date < ${toExclusive}::date
+      and (${userId ?? null}::text is null or user_id = ${userId ?? null})
+  `;
+  const out: Record<string, Record<string, number>> = {};
+  for (const r of rows) {
+    const day = dateOnly(r.work_date);
+    const byDay = (out[r.user_id] ??= {});
+    byDay[day] = (byDay[day] ?? 0) + Number(r.minutes);
+  }
+  return out;
+}
+
 function mapPunch(row: {
   id: number;
   type: "in" | "out";
@@ -412,9 +437,15 @@ export const getWorkspace = createServerFn({ method: "POST" })
       order by punched_at asc
     `;
     const pending = await sql<{ n: number }>`
-      select count(*)::int as n from correction_requests
-      where company_id = ${profile.companyId} and status = 'pending'
-        and (${canReview(profile.role)} or user_id = ${profile.userId})
+      select (
+        (select count(*) from correction_requests
+          where company_id = ${profile.companyId} and status = 'pending'
+            and (${canReview(profile.role)} or user_id = ${profile.userId}))
+        +
+        (select count(*) from overtime_requests
+          where company_id = ${profile.companyId} and status = 'pending'
+            and (${canReview(profile.role)} or user_id = ${profile.userId}))
+      )::int as n
     `;
     let teamToday: PersonRow[] = [];
     if (canReview(profile.role)) {
@@ -1239,6 +1270,17 @@ export const exportTimesheet = createServerFn({ method: "POST" })
         and date >= ${start}::date and date < ${end}::date
     `;
     const holidaySet = new Set(holidayRows.map((r) => dateOnly(r.date)));
+    const otReqRows = await sql<{ full_name: string; work_date: unknown; minutes: number }>`
+      select p.full_name, o.work_date, o.minutes from overtime_requests o
+      join profiles p on p.user_id = o.user_id
+      where o.company_id = ${profile.companyId} and o.status = 'approved'
+        and o.work_date >= ${start.slice(0, 10)}::date and o.work_date < ${end.slice(0, 10)}::date
+    `;
+    const extraByDay = new Map<string, number>();
+    for (const r of otReqRows) {
+      const k = `${r.full_name}\u0000${dateOnly(r.work_date)}`;
+      extraByDay.set(k, (extraByDay.get(k) ?? 0) + Number(r.minutes));
+    }
     const days = new Map<
       string,
       {
@@ -1311,7 +1353,9 @@ export const exportTimesheet = createServerFn({ method: "POST" })
       const lateMinutes = firstIn?.lateMinutes ?? 0;
       const overtimeMinutes = lastOut?.overtimeMinutes ?? 0;
       const overtimeStatus = lastOut?.overtimeStatus ?? "none";
-      const counted = overtimeStatus === "approved" ? minutesToHm(overtimeMinutes) : "";
+      const extraOt = extraByDay.get(`${bucket.name}\u0000${bucket.day}`) ?? 0;
+      const countedTotal = (overtimeStatus === "approved" ? overtimeMinutes : 0) + extraOt;
+      const counted = countedTotal > 0 ? minutesToHm(countedTotal) : "";
       const early =
         lastOut && vnWeekday(bucket.day) !== 0 && isEarlyOut(lastOut.at, settings.workEnd) ? "Có" : "Không";
       const offsite = bucket.punches.some((punch) => punch.offsite) ? "Có" : "Không";
@@ -1683,6 +1727,7 @@ export const getMonthGrid = createServerFn({ method: "POST" })
         and leave_date >= ${start}::date and leave_date < ${end}::date
     `;
     const holidays = holidayRows.map(r => dateOnly(r.date));
+    const extraOt = await loadExtraOt(sql, profile.companyId, start.slice(0, 10), end.slice(0, 10));
     const leaves: Record<string, Record<string, string>> = {};
     for (const r of leaveRows) {
       const d = dateOnly(r.leave_date);
@@ -1704,6 +1749,7 @@ export const getMonthGrid = createServerFn({ method: "POST" })
       punches,
       holidays,
       leaves,
+      extraOt,
       lock: locks[0]
         ? { lockedAt: stamp(locks[0].locked_at), lockedByName: locks[0].full_name ?? "Quản trị" }
         : null,
@@ -1800,6 +1846,7 @@ export const getHistory = createServerFn({ method: "POST" })
     `;
     const leaves: HistoryData["leaves"] = {};
     for (const r of leaveRows) (leaves[r.user_id] ??= {})[dateOnly(r.leave_date)] = r.kind;
+    const extraOt = await loadExtraOt(sql, profile.companyId, data.from, dayRange(data.to).end.slice(0, 10));
     const lockRows = await sql<{ month: string }>`
       select month from timesheet_locks
       where company_id = ${profile.companyId} and month >= ${data.from.slice(0, 7)} and month <= ${data.to.slice(0, 7)}
@@ -1821,6 +1868,7 @@ export const getHistory = createServerFn({ method: "POST" })
       punches,
       holidays: holidayRows.map((r) => dateOnly(r.date)),
       leaves,
+      extraOt,
       lockedMonths: lockRows.map((r) => r.month),
       truncated,
     };
@@ -1878,6 +1926,20 @@ export const listAudit = createServerFn({ method: "POST" })
         and a.punched_at >= ${start}::timestamptz and a.punched_at < ${end}::timestamptz
       order by a.punched_at desc limit 2000
     `;
+    const otReq = await sql<{
+      id: number; user_id: string; full_name: string; work_date: unknown; start_time: string; end_time: string;
+      minutes: number; note: string; status: "pending" | "approved" | "rejected"; review_note: string | null;
+      created_at: unknown; reviewed_at: unknown; reviewer_name: string | null;
+    }>`
+      select o.id, o.user_id, p.full_name, o.work_date, o.start_time, o.end_time, o.minutes, o.note, o.status,
+             o.review_note, o.created_at, o.reviewed_at, r.full_name as reviewer_name
+      from overtime_requests o
+      join profiles p on p.user_id = o.user_id
+      left join profiles r on r.user_id = o.reviewed_by
+      where o.company_id = ${profile.companyId}
+        and o.work_date >= ${data.from}::date and o.work_date <= ${data.to}::date
+      order by o.created_at desc limit 2000
+    `;
     const KIND: Record<string, string> = { quen: "Quên chấm", gps: "Lỗi GPS", congtac: "Đi công tác", khac: "Khác" };
     const LEAVE: Record<string, string> = { phep: "Nghỉ phép", om: "Nghỉ ốm", thaisan: "Thai sản", khac: "Nghỉ khác" };
     const events: AuditEvent[] = [
@@ -1893,6 +1955,12 @@ export const listAudit = createServerFn({ method: "POST" })
         date: dateOnly(l.leave_date), subject: LEAVE[l.kind] ?? "Nghỉ",
         note: l.note, reviewNote: l.review_note, createdAt: stamp(l.created_at),
         reviewedByName: l.reviewer_name, reviewedAt: l.reviewed_at ? stamp(l.reviewed_at) : null,
+      })),
+      ...otReq.map((o): AuditEvent => ({
+        key: `r${o.id}`, kind: "overtime", status: o.status, userId: o.user_id, fullName: o.full_name,
+        date: dateOnly(o.work_date), subject: `Đơn tăng ca ${o.start_time}–${o.end_time} (${minutesToHm(Number(o.minutes))})`,
+        note: o.note, reviewNote: o.review_note, createdAt: stamp(o.created_at),
+        reviewedByName: o.reviewer_name, reviewedAt: o.reviewed_at ? stamp(o.reviewed_at) : null,
       })),
       ...ot.map((o): AuditEvent => ({
         key: `o${o.id}`, kind: "overtime", status: o.overtime_status, userId: o.user_id, fullName: o.full_name,
@@ -2015,6 +2083,121 @@ export const listLeaves = createServerFn({ method: "GET" })
       reviewedByName: row.reviewer_name,
       reviewedAt: row.reviewed_at ? stamp(row.reviewed_at) : null,
     }));
+  });
+
+export const createOvertimeRequest = createServerFn({ method: "POST" })
+  .validator((input: { workDate: string; startTime: string; endTime: string; note: string }) => {
+    const workDate = input.workDate.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) throw new Error("Ngày chưa đúng");
+    if (!isHm(input.startTime) || !isHm(input.endTime)) throw new Error("Giờ chưa đúng");
+    const note = input.note.trim().slice(0, 300);
+    if (note.length < 3) throw new Error("Cần ghi chú việc đã làm");
+    return { workDate, startTime: input.startTime, endTime: input.endTime, note };
+  })
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) => {
+    const profile = await requireProfile(context.userId);
+    const sql = await getSql();
+    const companies = await sql<{ settings: unknown }>`select settings from companies where id = ${profile.companyId}`;
+    const settings = readSettings(companies[0]?.settings);
+    const today = vnDateKey();
+    const earliest = vnDateKey(new Date(Date.now() - 31 * 86_400_000));
+    const latest = vnDateKey(new Date(Date.now() + 7 * 86_400_000));
+    if (data.workDate < earliest) throw new Error("Chỉ xin tăng ca trong vòng 31 ngày gần đây");
+    if (data.workDate > latest) throw new Error("Chỉ xin trước tối đa 7 ngày");
+    void today;
+    await assertMonthOpen(profile.companyId, data.workDate);
+    if (vnWeekday(data.workDate) === 0 || (await isHolidayDay(profile.companyId, data.workDate))) {
+      throw new Error("Chủ nhật và ngày lễ: cứ chấm vào/ra như bình thường, hệ thống tự tính tăng ca. Không cần gửi đơn.");
+    }
+    if (hmToMinutes(data.endTime) <= hmToMinutes(data.startTime)) throw new Error("Giờ kết thúc phải sau giờ bắt đầu");
+    const minutes = countableOvertime(data.startTime, data.endTime, scheduleOf(settings));
+    if (minutes < settings.overtimeMinMinutes) {
+      throw new Error(
+        `Đơn tăng ca chỉ tính phần giờ nghỉ trưa (${settings.lunchStart}–${settings.lunchEnd}). Phần trong giờ làm đã tính công, phần sau ${settings.workEnd} tự tính khi chấm ra. Cần từ ${settings.overtimeMinMinutes} phút trở lên.`,
+      );
+    }
+    const clash = await sql<{ start_time: string; end_time: string }>`
+      select start_time, end_time from overtime_requests
+      where user_id = ${profile.userId} and work_date = ${data.workDate}::date and status in ('pending', 'approved')
+    `;
+    for (const c of clash) {
+      if (hmToMinutes(c.start_time) < hmToMinutes(data.endTime) && hmToMinutes(data.startTime) < hmToMinutes(c.end_time)) {
+        throw new Error(`Đã có đơn tăng ca ${c.start_time}–${c.end_time} trùng giờ này`);
+      }
+    }
+    await sql`
+      insert into overtime_requests (user_id, company_id, work_date, start_time, end_time, minutes, note)
+      values (${profile.userId}, ${profile.companyId}, ${data.workDate}::date, ${data.startTime}, ${data.endTime}, ${minutes}, ${data.note})
+    `;
+    return { ok: true, minutes };
+  });
+
+export const listOvertimeRequests = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<OvertimeRequestRow[]> => {
+    const profile = await requireProfile(context.userId);
+    const sql = await getSql();
+    const rows = await sql<{
+      id: number; user_id: string; full_name: string; work_date: unknown; start_time: string; end_time: string;
+      minutes: number; note: string; status: "pending" | "approved" | "rejected"; review_note: string | null;
+      created_at: unknown; reviewed_at: unknown; reviewer_name: string | null;
+    }>`
+      select o.id, o.user_id, p.full_name, o.work_date, o.start_time, o.end_time, o.minutes, o.note, o.status,
+             o.review_note, o.created_at, o.reviewed_at, r.full_name as reviewer_name
+      from overtime_requests o
+      join profiles p on p.user_id = o.user_id
+      left join profiles r on r.user_id = o.reviewed_by
+      where o.company_id = ${profile.companyId}
+        and (${canReview(profile.role)} or o.user_id = ${profile.userId})
+      order by case when o.status = 'pending' then 0 else 1 end, o.created_at desc
+      limit 80
+    `;
+    return rows.map((row) => ({
+      id: Number(row.id),
+      userId: row.user_id,
+      fullName: row.full_name,
+      workDate: dateOnly(row.work_date),
+      startTime: row.start_time,
+      endTime: row.end_time,
+      minutes: Number(row.minutes),
+      note: row.note,
+      status: row.status,
+      reviewNote: row.review_note,
+      createdAt: stamp(row.created_at),
+      reviewedByName: row.reviewer_name,
+      reviewedAt: row.reviewed_at ? stamp(row.reviewed_at) : null,
+    }));
+  });
+
+export const reviewOvertimeRequest = createServerFn({ method: "POST" })
+  .validator((input: { id: number; decision: "approved" | "rejected"; reviewNote: string }) => {
+    const id = Number(input.id);
+    if (!Number.isInteger(id) || id <= 0) throw new Error("Đơn không hợp lệ");
+    if (input.decision !== "approved" && input.decision !== "rejected") throw new Error("Quyết định không hợp lệ");
+    return { id, decision: input.decision, reviewNote: (input.reviewNote ?? "").trim().slice(0, 300) };
+  })
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) => {
+    const profile = await requireProfile(context.userId);
+    if (!canReview(profile.role)) throw new Error("Bạn không có quyền duyệt");
+    const sql = await getSql();
+    const rows = await sql<{ user_id: string; work_date: unknown; status: string }>`
+      select user_id, work_date, status from overtime_requests where id = ${data.id} and company_id = ${profile.companyId}
+    `;
+    const row = rows[0];
+    if (!row || row.status !== "pending") throw new Error("Đơn không còn chờ duyệt");
+    if (row.user_id === profile.userId) {
+      const only = await isOnlyReviewer(profile.companyId, profile.userId);
+      if (!only) throw new Error("Không tự duyệt đơn của mình");
+    }
+    if (data.decision === "approved") await assertMonthOpen(profile.companyId, dateOnly(row.work_date));
+    await sql`
+      update overtime_requests
+      set status = ${data.decision}, reviewed_by = ${profile.userId}, reviewed_at = now(), review_note = ${data.reviewNote || null}
+      where id = ${data.id} and status = 'pending'
+    `;
+    return { ok: true };
   });
 
 export const listHolidays = createServerFn({ method: "GET" })

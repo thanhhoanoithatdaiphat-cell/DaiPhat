@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ChevronLeft, ChevronRight, MapPin } from "lucide-react";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
-import { workedMinutes } from "@/lib/month-grid";
+import { countableOvertime, workedMinutes } from "@/lib/month-grid";
 import { CameraSheet } from "@/components/camera-sheet";
 import { errorText, fieldClass, primaryBtn, secondaryBtn } from "@/components/ui";
 import { InviteCodeCard } from "@/components/invite-card";
@@ -12,6 +12,9 @@ import {
   listCorrections,
   getMySummary,
   listLeaves,
+  listOvertimeRequests,
+  createOvertimeRequest,
+  reviewOvertimeRequest,
   listHistory,
   listRankings,
   exportTimesheet,
@@ -29,6 +32,7 @@ import {
 import type {
   CorrectionRow,
   LeaveRow,
+  OvertimeRequestRow,
   LocationRow,
   MySummary,
   PersonRow,
@@ -1039,6 +1043,7 @@ export function RequestsPanel({
   userId,
   workStart,
   workEnd,
+  settings,
   onChanged,
 }: {
   canReview: boolean;
@@ -1046,9 +1051,10 @@ export function RequestsPanel({
   userId: string;
   workStart: string;
   workEnd: string;
+  settings: Settings;
   onChanged: () => Promise<void>;
 }) {
-  const [view, setView] = useState<"review" | "fix" | "leave" | "mine">("fix");
+  const [view, setView] = useState<"review" | "fix" | "leave" | "overtime" | "mine">("fix");
   const [rows, setRows] = useState<CorrectionRow[] | null>(null);
   const [error, setError] = useState("");
   const [date, setDate] = useState(vnDateKey());
@@ -1115,6 +1121,7 @@ export function RequestsPanel({
     ...(canReview ? [{ id: "review" as const, label: "Chờ duyệt", badge: pending.length }] : []),
     { id: "fix", label: "Sửa công" },
     { id: "leave", label: "Xin nghỉ" },
+    { id: "overtime", label: "Tăng ca" },
     { id: "mine", label: canReview ? "Tất cả" : "Đã gửi" },
   ];
   const tab = tabs.some((t) => t.id === view) ? view : "fix";
@@ -1220,6 +1227,7 @@ export function RequestsPanel({
       ) : null}
       {error ? <p className="text-sm text-clay">{error}</p> : null}
       {tab === "leave" ? <LeaveSection canReview={canReview} userId={userId} onChanged={onChanged} /> : null}
+      {tab === "overtime" ? <OvertimeSection canReview={canReview} userId={userId} settings={settings} onChanged={onChanged} /> : null}
       {tab === "mine" ? (
       <section className="space-y-2">
         <h3 className="font-semibold">{canReview ? "Tất cả đơn" : "Đơn của tôi"}</h3>
@@ -1377,6 +1385,166 @@ function LeaveSection({ canReview, userId, onChanged }: { canReview: boolean; us
                   {row.status === "approved" ? "Đã duyệt" : row.status === "rejected" ? "Từ chối" : "Chờ duyệt"}
                 </Badge>
               </div>
+              <p className="mt-1 text-sm">{row.note}</p>
+              {row.reviewNote ? <p className="mt-1 text-sm text-muted">Ghi chú duyệt: {row.reviewNote}</p> : null}
+            </article>
+          ))}
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview: boolean; userId: string; settings: Settings; onChanged: () => Promise<void> }) {
+  const [rows, setRows] = useState<OvertimeRequestRow[] | null>(null);
+  const [error, setError] = useState("");
+  const [date, setDate] = useState(vnDateKey());
+  const [from, setFrom] = useState(settings.lunchStart);
+  const [to, setTo] = useState(settings.lunchEnd);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState("");
+  const [reviewNotes, setReviewNotes] = useState<Record<number, string>>({});
+
+  async function load() {
+    setRows(await listOvertimeRequests());
+  }
+  useEffect(() => {
+    let cancelled = false;
+    listOvertimeRequests()
+      .then((next) => {
+        if (!cancelled) setRows(next);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(errorText(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const counted = countableOvertime(from, to, scheduleOf(settings));
+  const tooShort = counted < settings.overtimeMinMinutes;
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setSent("");
+    try {
+      const res = await createOvertimeRequest({ data: { workDate: date, startTime: from, endTime: to, note } });
+      setNote("");
+      setSent(`Đã gửi đơn, được tính ${minutesToHm(res.minutes)}.`);
+      await load();
+      await onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function review(id: number, decision: "approved" | "rejected") {
+    setError("");
+    try {
+      await reviewOvertimeRequest({ data: { id, decision, reviewNote: reviewNotes[id] ?? "" } });
+      await load();
+      await onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }
+
+  const pending = (rows ?? []).filter((row) => row.status === "pending" && row.userId !== userId);
+  const mine = (rows ?? []).filter((row) => row.userId === userId);
+  const statusTone = (s: OvertimeRequestRow["status"]) => (s === "approved" ? "ok" : s === "rejected" ? "late" : "muted");
+  const statusText = (s: OvertimeRequestRow["status"]) => (s === "approved" ? "Đã duyệt" : s === "rejected" ? "Từ chối" : "Chờ duyệt");
+
+  return (
+    <div className="space-y-4">
+      {canReview && pending.length ? (
+        <section className="space-y-2">
+          <div className="flex items-end justify-between">
+            <h2 className="font-display text-2xl font-semibold">Đơn tăng ca chờ duyệt</h2>
+            <p className="text-sm font-semibold tabular-nums text-clay">{pending.length}</p>
+          </div>
+          {pending.map((row) => (
+            <article key={row.id} className="space-y-3 rounded-xl border border-line bg-card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold">{row.fullName}</p>
+                  <p className="text-sm text-muted">{formatVnDay(row.workDate)} · {row.startTime}–{row.endTime}</p>
+                </div>
+                <span className="rounded-full bg-sand px-2 py-1 text-xs font-semibold">Tính {minutesToHm(row.minutes)}</span>
+              </div>
+              <p className="text-sm">{row.note}</p>
+              <input
+                className={fieldClass}
+                placeholder="Ghi chú khi duyệt, nếu cần"
+                value={reviewNotes[row.id] ?? ""}
+                onChange={(e) => setReviewNotes((current) => ({ ...current, [row.id]: e.target.value }))}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" className={primaryBtn} onClick={() => void review(row.id, "approved")}>Duyệt</button>
+                <button type="button" className={secondaryBtn} onClick={() => void review(row.id, "rejected")}>Từ chối</button>
+              </div>
+            </article>
+          ))}
+        </section>
+      ) : null}
+      <form className="space-y-3 rounded-xl border border-line bg-card p-4" onSubmit={submit}>
+        <h2 className="font-display text-2xl font-semibold">Xin tăng ca</h2>
+        <p className="text-sm text-muted">
+          Dùng khi làm vào giờ nghỉ trưa ({settings.lunchStart}–{settings.lunchEnd}). Làm quá {settings.workEnd} thì cứ chấm ra, hệ thống tự tính, không cần gửi đơn.
+        </p>
+        <label className="block space-y-1 text-sm">
+          Ngày làm
+          <input className={fieldClass} type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+        </label>
+        <button
+          type="button"
+          className={`w-full rounded-lg border px-3 py-2 text-sm font-semibold ${from === settings.lunchStart && to === settings.lunchEnd ? "border-ink bg-ink/10" : "border-line"}`}
+          onClick={() => {
+            setFrom(settings.lunchStart);
+            setTo(settings.lunchEnd);
+          }}
+        >
+          Cả buổi trưa
+          <span className="ml-2 text-xs font-normal text-muted">{settings.lunchStart}–{settings.lunchEnd}</span>
+        </button>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="space-y-1 text-sm">
+            Từ giờ
+            <input className={fieldClass} type="time" value={from} onChange={(e) => setFrom(e.target.value)} required />
+          </label>
+          <label className="space-y-1 text-sm">
+            Đến giờ
+            <input className={fieldClass} type="time" value={to} onChange={(e) => setTo(e.target.value)} required />
+          </label>
+        </div>
+        <p className={`rounded-lg px-3 py-2 text-sm ${tooShort ? "bg-clay/15 text-clay" : "bg-ok/15 text-ok"}`}>
+          {tooShort
+            ? `Được tính ${minutesToHm(counted)}. Cần từ ${settings.overtimeMinMinutes} phút trở lên, chỉ tính giờ nghỉ trưa.`
+            : `Được tính ${minutesToHm(counted)} tăng ca nếu được duyệt.`}
+        </p>
+        <label className="block space-y-1 text-sm">
+          Việc đã làm
+          <textarea className="min-h-20 w-full rounded-md border border-line bg-card px-3 py-2 text-base outline-none focus:border-ink" value={note} onChange={(e) => setNote(e.target.value)} required minLength={3} maxLength={300} placeholder="VD: Hoàn thiện đơn hàng gấp cho khách" />
+        </label>
+        <button className={`${primaryBtn} w-full`} type="submit" disabled={busy || tooShort}>{busy ? "Đang gửi…" : "Gửi đơn tăng ca"}</button>
+        {sent ? <p className="text-sm text-ok">{sent}</p> : null}
+        {error ? <p className="text-sm text-clay">{error}</p> : null}
+      </form>
+      {mine.length ? (
+        <section className="space-y-2">
+          <h3 className="font-semibold">Đơn tăng ca của tôi</h3>
+          {mine.map((row) => (
+            <article key={`mine-${row.id}`} className="rounded-xl border border-line bg-card px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-medium">{formatVnDay(row.workDate)} · {row.startTime}–{row.endTime}</p>
+                <Badge tone={statusTone(row.status)}>{statusText(row.status)}</Badge>
+              </div>
+              <p className="mt-1 text-sm text-muted">Tính {minutesToHm(row.minutes)}</p>
               <p className="mt-1 text-sm">{row.note}</p>
               {row.reviewNote ? <p className="mt-1 text-sm text-muted">Ghi chú duyệt: {row.reviewNote}</p> : null}
             </article>

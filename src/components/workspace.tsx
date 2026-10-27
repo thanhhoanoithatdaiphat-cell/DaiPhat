@@ -93,6 +93,7 @@ export function Workspace({ user }: { user: AppUser }) {
                 userId={data.profile.userId}
                 workStart={data.settings.workStart}
                 workEnd={data.settings.workEnd}
+                settings={data.settings}
                 onChanged={load}
               />
             </div>

@@ -1051,7 +1051,7 @@ export function RequestsPanel({
   userId: string;
   workStart: string;
   workEnd: string;
-  settings: Settings;
+  settings?: Settings;
   onChanged: () => Promise<void>;
 }) {
   const [view, setView] = useState<"review" | "fix" | "leave" | "overtime" | "mine">("fix");
@@ -1227,7 +1227,7 @@ export function RequestsPanel({
       ) : null}
       {error ? <p className="text-sm text-clay">{error}</p> : null}
       {tab === "leave" ? <LeaveSection canReview={canReview} userId={userId} onChanged={onChanged} /> : null}
-      {tab === "overtime" ? <OvertimeSection canReview={canReview} userId={userId} settings={settings} onChanged={onChanged} /> : null}
+      {tab === "overtime" ? <OvertimeSection canReview={canReview} userId={userId} settings={settings ?? ({ workStart, workEnd, lunchStart: "11:30", lunchEnd: "13:30", overtimeMinMinutes: 30 } as Settings)} onChanged={onChanged} /> : null}
       {tab === "mine" ? (
       <section className="space-y-2">
         <h3 className="font-semibold">{canReview ? "Tất cả đơn" : "Đơn của tôi"}</h3>

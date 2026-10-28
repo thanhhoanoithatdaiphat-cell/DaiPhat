@@ -4,6 +4,7 @@ import { PersonCard } from "@/components/panels";
 import { errorText } from "@/components/ui";
 import { LEFT_VISIBLE_DAYS, setEmployeeLeft } from "@/lib/attendance.functions";
 import { InviteCodeCard } from "@/components/invite-card";
+import { AddEmployees } from "@/components/add-employees";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
 import type { PersonRow, Role } from "@/lib/attendance-types";
 import type { AdminCtx } from "./app";
@@ -32,6 +33,7 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
   const [dept, setDept] = useState("");
   const [status, setStatus] = useState<StatusFilter>("active");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
 
   async function toggleLeft(p: PersonRow, left: boolean) {
@@ -62,6 +64,7 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
     }).sort(compareByCode);
   }, [people, query, dept, status]);
   const panelRef = useRef<HTMLElement>(null);
+  const isAdmin = data.profile.role === "admin";
   useClickAway(panelRef, () => setOpenId(null), openId !== null);
   const open = openId ? people.find((p) => p.userId === openId) : undefined;
   const missingInfo = people.filter((p) => p.isActive !== false && (!p.employeeCode || !p.department)).length;
@@ -70,6 +73,13 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
     <div className="space-y-4">
       <PageHero
         title="Nhân viên"
+        actions={
+          isAdmin ? (
+            <button type="button" className="h-10 rounded-md bg-[#fff3d6] px-4 text-sm font-bold text-night" onClick={() => { setOpenId(null); setAdding(true); }}>
+              + Thêm nhân viên
+            </button>
+          ) : undefined
+        }
         subtitle={`${activeCount} đang làm việc · ${people.length - activeCount} đã nghỉ${missingInfo ? ` · ${missingInfo} người chưa đủ mã NV hoặc phòng ban` : ""}`}
       />
 
@@ -180,7 +190,7 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
 
         <div className="space-y-4">
           <InviteCodeCard />
-          <p className="text-xs text-muted">Nhân viên mới tự đăng ký bằng số điện thoại và mã mời, rồi xuất hiện ở đây. Bấm một dòng để điền mã NV, phòng ban, vai trò. Tích ô "Nghỉ việc" khi có người nghỉ: sau 15 ngày người đó tự ẩn khỏi danh sách (dữ liệu công cũ vẫn giữ để tính lương).</p>
+          <p className="text-xs text-muted">Bấm "Thêm nhân viên" để tạo sẵn tài khoản cho nhân viên (không cần họ tự đăng ký), hoặc gửi mã mời để họ tự đăng ký. Bấm một dòng để điền mã NV, phòng ban, vai trò. Tích ô "Nghỉ việc" khi có người nghỉ: sau 15 ngày người đó tự ẩn khỏi danh sách (dữ liệu công cũ vẫn giữ để tính lương).</p>
         </div>
       </div>
 
@@ -192,7 +202,19 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
               <X className="size-5" />
             </button>
           </div>
-          <PersonCard key={open.userId} person={open} selfId={data.profile.userId} onChanged={reload} />
+          <PersonCard key={open.userId} person={open} selfId={data.profile.userId} onChanged={reload} canReset={isAdmin} />
+        </aside>
+      ) : null}
+
+      {adding ? (
+        <aside className="fixed inset-y-0 right-0 z-30 w-full overflow-y-auto border-l-2 border-ink bg-paper p-5 shadow-2xl sm:w-[30rem]" aria-label="Thêm nhân viên">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-display text-3xl font-semibold">Thêm nhân viên</h2>
+            <button type="button" aria-label="Đóng" className="grid size-9 place-items-center rounded-md border border-edge bg-card" onClick={() => setAdding(false)}>
+              <X className="size-5" />
+            </button>
+          </div>
+          <AddEmployees people={people} onChanged={reload} onClose={() => setAdding(false)} />
         </aside>
       ) : null}
     </div>

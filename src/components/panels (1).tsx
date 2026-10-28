@@ -5,6 +5,7 @@ import { countableOvertime, workedMinutes } from "@/lib/month-grid";
 import { CameraSheet } from "@/components/camera-sheet";
 import { errorText, fieldClass, primaryBtn, secondaryBtn } from "@/components/ui";
 import { InviteCodeCard } from "@/components/invite-card";
+import { AddEmployees } from "@/components/add-employees";
 import {
   createCorrection,
   createLeaveRequest,
@@ -25,6 +26,7 @@ import {
   saveCompany,
   saveLocation,
   setRole,
+  adminResetPassword,
   adminUpdateProfile,
   updateProfile,
   whereAmI,
@@ -1642,7 +1644,7 @@ export function ManagePanel({ data, onChanged }: { data: WorkspaceData; onChange
         ))}
       </div>
       {tab === "today" ? <TodayTab data={data} onChanged={onChanged} /> : null}
-      {tab === "people" ? <PeopleTab data={data} onChanged={onChanged} /> : null}
+      {tab === "people" ? <PeopleTab data={data} onChanged={onChanged} isAdmin={isAdmin} /> : null}
       {tab === "more" ? <MoreTab data={data} onChanged={onChanged} isAdmin={isAdmin} /> : null}
     </div>
   );
@@ -1821,7 +1823,8 @@ function ApprovalCard({ data, onChanged }: { data: WorkspaceData; onChanged: () 
   );
 }
 
-function PeopleTab({ data, onChanged }: { data: WorkspaceData; onChanged: () => Promise<void> }) {
+function PeopleTab({ data, onChanged, isAdmin }: { data: WorkspaceData; onChanged: () => Promise<void>; isAdmin: boolean }) {
+  const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [more, setMore] = useState(8);
@@ -1831,8 +1834,24 @@ function PeopleTab({ data, onChanged }: { data: WorkspaceData; onChanged: () => 
   );
   const shown = list.slice(0, more);
   const open = openId ? data.teamToday.find((p) => p.userId === openId) : undefined;
+  if (adding && isAdmin) {
+    return (
+      <section className="space-y-2">
+        <button type="button" className="flex h-10 items-center gap-1 text-sm font-semibold text-ink" onClick={() => setAdding(false)}>
+          <ChevronLeft className="size-4" /> Danh sách
+        </button>
+        <h2 className="font-display text-2xl font-semibold">Thêm nhân viên</h2>
+        <AddEmployees people={data.teamToday} onChanged={onChanged} onClose={() => setAdding(false)} />
+      </section>
+    );
+  }
   return (
     <section className="space-y-3">
+      {isAdmin ? (
+        <button type="button" className={`${primaryBtn} w-full`} onClick={() => setAdding(true)}>
+          + Thêm nhân viên
+        </button>
+      ) : null}
       <input
         className={fieldClass}
         value={query}
@@ -1848,7 +1867,7 @@ function PeopleTab({ data, onChanged }: { data: WorkspaceData; onChanged: () => 
           <button type="button" className="flex h-10 items-center gap-1 text-sm font-semibold text-ink" onClick={() => setOpenId(null)}>
             <ChevronLeft className="size-4" /> Danh sách
           </button>
-          <PersonCard key={open.userId} person={open} selfId={data.profile.userId} onChanged={onChanged} />
+          <PersonCard key={open.userId} person={open} selfId={data.profile.userId} onChanged={onChanged} canReset={isAdmin} />
         </div>
       ) : (
         <>
@@ -2182,12 +2201,15 @@ export function PersonCard({
   selfId,
   onChanged,
   defaultOpen = false,
+  canReset = false,
 }: {
   person: PersonRow;
   selfId: string;
   onChanged: () => Promise<void>;
   defaultOpen?: boolean;
+  canReset?: boolean;
 }) {
+  const [newPin, setNewPin] = useState("");
   const [open, setOpen] = useState(defaultOpen);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -2204,6 +2226,16 @@ export function PersonCard({
     try {
       await setRole({ data: { userId: person.userId, role } });
       await onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }
+
+  async function resetPin() {
+    if (!window.confirm(`Cấp mật khẩu mới cho ${person.fullName}? Mật khẩu cũ sẽ không dùng được nữa.`)) return;
+    setError("");
+    try {
+      setNewPin((await adminResetPassword({ data: { userId: person.userId } })).password);
     } catch (err) {
       setError(errorText(err));
     }
@@ -2259,6 +2291,18 @@ export function PersonCard({
         <option value="approver">Người duyệt</option>
         <option value="admin">Quản trị</option>
       </select>
+      {canReset && person.userId !== selfId ? (
+        newPin ? (
+          <div className="mt-2 rounded-md bg-ok/15 px-3 py-2 text-sm">
+            <p>Mật khẩu mới của {person.fullName} (chỉ hiện một lần):</p>
+            <p className="font-display text-3xl font-bold tracking-widest tabular-nums" data-testid="reset-password">{newPin}</p>
+          </div>
+        ) : (
+          <button type="button" className="mt-2 text-sm text-ink underline" onClick={() => void resetPin()}>
+            Cấp lại mật khẩu
+          </button>
+        )
+      ) : null}
       {open ? (
         <form onSubmit={saveProfile} className="mt-3 space-y-2 border-t border-line pt-3">
           <label className="block text-sm">

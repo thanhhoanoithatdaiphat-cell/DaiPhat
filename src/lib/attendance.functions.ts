@@ -23,7 +23,7 @@ import type {
   WorkspaceData,
 } from "@/lib/attendance-types";
 import { dayRange, hmToMinutes, isEarlyOut, minutesToHm, monthRange, vnDateKey, vnMinutes, vnMonthKey, vnWeekday } from "@/lib/vn-time";
-import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
+import { displayPhone, normalizeVnPhone, phoneFromLoginEmail, phoneLoginEmail } from "@/lib/phone";
 import {
   buildCell,
   congOf,
@@ -1580,6 +1580,132 @@ export const saveLocation = createServerFn({ method: "POST" })
       if (!updated[0]) throw new Error("Không tìm thấy vị trí");
     }
     return { ok: true };
+  });
+
+/** Mật khẩu 8 chữ số ngẫu nhiên: dễ đọc, dễ nhập cho người lớn tuổi (không lặp một số, không dãy liền). */
+async function easyPassword(): Promise<string> {
+  const { randomInt } = await import("node:crypto");
+  for (;;) {
+    const pin = String(randomInt(10_000_000, 100_000_000));
+    if (/^(\d)\1+$/.test(pin)) continue;
+    if ("0123456789".includes(pin) || "9876543210".includes(pin)) continue;
+    return pin;
+  }
+}
+
+export type NewEmployeeInput = {
+  fullName: string;
+  phone: string;
+  employeeCode?: string;
+  department?: string;
+  jobTitle?: string;
+  startedOn?: string;
+};
+
+export type NewEmployeeResult = {
+  fullName: string;
+  phone: string;
+  ok: boolean;
+  /** Chỉ có khi tạo thành công. Chỉ hiện một lần, hệ thống không lưu bản rõ. */
+  password?: string;
+  error?: string;
+};
+
+/** Quản trị tạo sẵn tài khoản cho nhân viên: nhân viên chỉ cần đăng nhập bằng số điện thoại và mật khẩu được cấp. */
+export const adminCreateEmployees = createServerFn({ method: "POST" })
+  .validator((input: { people: NewEmployeeInput[] }) => {
+    if (!Array.isArray(input.people) || input.people.length === 0) throw new Error("Chưa có nhân viên nào");
+    if (input.people.length > 100) throw new Error("Tối đa 100 người mỗi lần");
+    return {
+      people: input.people.map((p) => ({
+        fullName: String(p.fullName ?? "").trim().slice(0, 80),
+        phone: String(p.phone ?? "").trim(),
+        employeeCode: String(p.employeeCode ?? "").trim().slice(0, 20),
+        department: String(p.department ?? "").trim().slice(0, 60),
+        jobTitle: String(p.jobTitle ?? "").trim().slice(0, 60),
+        startedOn: String(p.startedOn ?? "").trim(),
+      })),
+    };
+  })
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }): Promise<NewEmployeeResult[]> => {
+    const profile = await requireProfile(context.userId);
+    if (profile.role !== "admin") throw new Error("Chỉ quản trị được tạo tài khoản cho nhân viên");
+    const sql = await getSql();
+    const { auth } = await import("@/lib/auth/server");
+    const ac = await auth.$context;
+    const out: NewEmployeeResult[] = [];
+    const seen = new Set<string>();
+    for (const p of data.people) {
+      const phone = normalizeVnPhone(p.phone);
+      const shown = phone ? displayPhone(phone) : p.phone;
+      const fail = (error: string) => out.push({ fullName: p.fullName, phone: shown, ok: false, error });
+      if (p.fullName.length < 2) {
+        fail("Thiếu họ tên");
+        continue;
+      }
+      if (!phone) {
+        fail("Số điện thoại chưa đúng");
+        continue;
+      }
+      if (p.startedOn && !/^\d{4}-\d{2}-\d{2}$/.test(p.startedOn)) {
+        fail("Ngày vào làm chưa đúng");
+        continue;
+      }
+      if (seen.has(phone)) {
+        fail("Số bị trùng trong danh sách");
+        continue;
+      }
+      seen.add(phone);
+      try {
+        const email = phoneLoginEmail(phone);
+        if (await ac.internalAdapter.findUserByEmail(email)) {
+          fail("Số này đã có tài khoản");
+          continue;
+        }
+        const password = await easyPassword();
+        const hash = await ac.password.hash(password);
+        const user = await ac.internalAdapter.createUser({ email, name: p.fullName, emailVerified: false });
+        if (!user) {
+          fail("Không tạo được tài khoản");
+          continue;
+        }
+        await ac.internalAdapter.linkAccount({ userId: user.id, providerId: "credential", accountId: user.id, password: hash });
+        await sql`
+          insert into profiles (user_id, company_id, full_name, email, phone, role, employee_code, department, job_title, started_on)
+          values (${user.id}, ${profile.companyId}, ${p.fullName}, ${email}, ${phone}, 'employee',
+                  ${p.employeeCode || null}, ${p.department || null}, ${p.jobTitle || null}, ${p.startedOn || vnDateKey()}::date)
+          on conflict (user_id) do nothing
+        `;
+        out.push({ fullName: p.fullName, phone: shown, ok: true, password });
+      } catch (err) {
+        fail(err instanceof Error ? err.message : "Không tạo được tài khoản");
+      }
+    }
+    return out;
+  });
+
+/** Quản trị cấp lại mật khẩu mới cho nhân viên (quên hoặc mất). Các máy đang đăng nhập bị đăng xuất. */
+export const adminResetPassword = createServerFn({ method: "POST" })
+  .validator((input: { userId: string }) => {
+    if (!input.userId || input.userId.length > 80) throw new Error("Người dùng không hợp lệ");
+    return { userId: input.userId };
+  })
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }): Promise<{ password: string }> => {
+    const profile = await requireProfile(context.userId);
+    if (profile.role !== "admin") throw new Error("Chỉ quản trị được cấp lại mật khẩu");
+    const sql = await getSql();
+    const rows = await sql<{ user_id: string }>`
+      select user_id from profiles where user_id = ${data.userId} and company_id = ${profile.companyId}
+    `;
+    if (!rows[0]) throw new Error("Không tìm thấy nhân viên");
+    const { auth } = await import("@/lib/auth/server");
+    const ac = await auth.$context;
+    const password = await easyPassword();
+    await ac.internalAdapter.updatePassword(data.userId, await ac.password.hash(password));
+    await ac.internalAdapter.deleteUserSessions(data.userId);
+    return { password };
   });
 
 /** Ngày công ty giữ nhân viên đã nghỉ trong danh sách trước khi tự ẩn (dữ liệu chấm công và bảng công cũ vẫn giữ). */

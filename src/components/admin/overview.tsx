@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Download, Search } from "lucide-react";
 import { errorText } from "@/components/ui";
-import { exportTimesheet, reviewCorrection, reviewLeave, reviewOvertime } from "@/lib/attendance.functions";
+import { exportTimesheet, reviewCorrection, reviewLeave, reviewOvertime, reviewOvertimeRequest } from "@/lib/attendance.functions";
 import type { PersonRow } from "@/lib/attendance-types";
 import { todayLong, vnDateKey, vnMonthKey, vnTime, minutesToHm } from "@/lib/vn-time";
 import type { AdminCtx } from "./app";
@@ -13,7 +13,7 @@ type Status = "late" | "working" | "done" | "none";
 
 type Pending = {
   key: string;
-  kind: "correction" | "leave" | "overtime";
+  kind: "correction" | "leave" | "overtime" | "otreq";
   id: number;
   userId: string;
   title: string;
@@ -43,6 +43,7 @@ function dateLine(): string {
 
 export function OverviewView({ ctx }: { ctx: AdminCtx }) {
   const { data, corrections, leaves, go, reload } = ctx;
+  const overtimeRequests = ctx.overtimeRequests ?? [];
   const selfId = data.profile.userId;
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
@@ -143,8 +144,19 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
       detail: `Tăng ca ${minutesToHm(r.overtimeMinutes)} ngày ${dayOf(r.punchedAt)}`,
       at: r.punchedAt,
     }));
-    return [...a, ...b, ...c].sort((x, y) => y.at.localeCompare(x.at));
-  }, [corrections, leaves, data.overtimePending]);
+    const d: Pending[] = overtimeRequests
+      .filter((o) => o.status === "pending")
+      .map((o) => ({
+        key: `r${o.id}`,
+        kind: "otreq",
+        id: o.id,
+        userId: o.userId,
+        title: `Đơn tăng ca · ${o.fullName}`,
+        detail: `${o.startTime}–${o.endTime} ngày ${shortDate(o.workDate)} · tính ${minutesToHm(o.minutes)}`,
+        at: o.createdAt,
+      }));
+    return [...a, ...b, ...c, ...d].sort((x, y) => y.at.localeCompare(x.at));
+  }, [corrections, leaves, overtimeRequests, data.overtimePending]);
 
   async function decide(item: Pending, decision: "approved" | "rejected", reason: string) {
     setBusyKey(item.key);
@@ -152,6 +164,7 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
     try {
       if (item.kind === "correction") await reviewCorrection({ data: { id: item.id, decision, reviewNote: reason } });
       else if (item.kind === "leave") await reviewLeave({ data: { id: item.id, decision, reviewNote: reason } });
+      else if (item.kind === "otreq") await reviewOvertimeRequest({ data: { id: item.id, decision, reviewNote: reason } });
       else await reviewOvertime({ data: { id: item.id, decision } });
       setRejectKey("");
       setNote("");

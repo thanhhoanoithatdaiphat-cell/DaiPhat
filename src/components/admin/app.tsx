@@ -3,8 +3,8 @@ import { Link } from "@tanstack/react-router";
 import { Smartphone } from "lucide-react";
 import { errorText } from "@/components/ui";
 import { signOut } from "@/lib/auth/client";
-import { getWorkspace, listCorrections, listLeaves } from "@/lib/attendance.functions";
-import type { CorrectionRow, LeaveRow, WorkspaceData } from "@/lib/attendance-types";
+import { getWorkspace, listCorrections, listLeaves, listOvertimeRequests } from "@/lib/attendance.functions";
+import type { CorrectionRow, LeaveRow, OvertimeRequestRow, WorkspaceData } from "@/lib/attendance-types";
 import { EmployeesView } from "./employees";
 import { HistoryView } from "./history";
 import { InboxView } from "./inbox";
@@ -18,6 +18,7 @@ export type AdminCtx = {
   data: WorkspaceData;
   corrections: CorrectionRow[];
   leaves: LeaveRow[];
+  overtimeRequests: OvertimeRequestRow[];
   reload: () => Promise<void>;
   go: (view: AdminView) => void;
 };
@@ -28,19 +29,22 @@ export function AdminApp({ user, view, onView }: { user: AppUser; view: AdminVie
   const [data, setData] = useState<WorkspaceData | null>(null);
   const [corrections, setCorrections] = useState<CorrectionRow[]>([]);
   const [leaves, setLeaves] = useState<LeaveRow[]>([]);
+  const [overtimeRequests, setOvertimeRequests] = useState<OvertimeRequestRow[]>([]);
   const [error, setError] = useState("");
   const [signingOut, setSigningOut] = useState(false);
 
   const reload = useCallback(async () => {
     try {
-      const [ws, list, leaveList] = await Promise.all([
+      const [ws, list, leaveList, otList] = await Promise.all([
         getWorkspace({ data: { displayName: user.displayName ?? "", email: user.primaryEmail ?? "" } }),
         listCorrections(),
         listLeaves(),
+        listOvertimeRequests(),
       ]);
       setData(ws);
       setCorrections(list);
       setLeaves(leaveList);
+      setOvertimeRequests(otList);
       setError("");
     } catch (err) {
       setError(errorText(err));
@@ -81,7 +85,7 @@ export function AdminApp({ user, view, onView }: { user: AppUser; view: AdminVie
     );
   }
 
-  const pendingTotal = corrections.filter((c) => c.status === "pending").length + leaves.filter((l) => l.status === "pending").length + data.overtimePending.length;
+  const pendingTotal = corrections.filter((c) => c.status === "pending").length + leaves.filter((l) => l.status === "pending").length + overtimeRequests.filter((o) => o.status === "pending").length + data.overtimePending.length;
   const items: { id: AdminView; label: string; badge?: number }[] = [
     { id: "overview", label: "Tổng quan" },
     { id: "inbox", label: "Cần duyệt", badge: pendingTotal },
@@ -94,7 +98,7 @@ export function AdminApp({ user, view, onView }: { user: AppUser; view: AdminVie
   // Lịch sử không có trong thiết kế chốt; giữ ở cuối menu để không mất chức năng.
   items.push({ id: "history", label: "Lịch sử" });
   const current = items.some((i) => i.id === view) ? view : "overview";
-  const ctx: AdminCtx = { data, corrections, leaves, reload, go: onView };
+  const ctx: AdminCtx = { data, corrections, leaves, overtimeRequests, reload, go: onView };
 
   return (
     <div className="flex min-h-dvh flex-col bg-paper text-ink lg:flex-row">

@@ -26,7 +26,8 @@ type Decided = {
 };
 
 export function InboxView({ ctx }: { ctx: AdminCtx }) {
-  const { data, corrections, leaves, overtimeRequests, reload } = ctx;
+  const { data, corrections, leaves, reload } = ctx;
+  const overtimeRequests = ctx.overtimeRequests ?? [];
   const selfId = data.profile.userId;
   const [tab, setTab] = useState<Tab>("all");
   const [cursor, setCursor] = useState(0);

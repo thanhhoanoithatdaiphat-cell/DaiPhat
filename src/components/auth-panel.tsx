@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { InstallApp } from "@/components/install-app";
 import { authClient, authEnabled } from "@/lib/auth/client";
 import { errorText, primaryBtn } from "@/components/ui";
 import { normalizeVnPhone, phoneLoginEmail } from "@/lib/phone";
@@ -193,6 +194,9 @@ export function AuthPanel() {
           {busy ? "Đang xử lý…" : mode === "up" ? "Tạo tài khoản" : mode === "reset" ? (step === "phone" ? "Gửi mã qua SMS" : "Đặt lại mật khẩu") : "VÀO CA"}
         </button>
       </form>
+      <div className="mt-4">
+        <InstallApp />
+      </div>
     </div>
   );
 }

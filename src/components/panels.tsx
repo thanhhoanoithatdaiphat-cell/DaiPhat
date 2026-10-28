@@ -6,6 +6,7 @@ import { CameraSheet } from "@/components/camera-sheet";
 import { errorText, fieldClass, primaryBtn, secondaryBtn } from "@/components/ui";
 import { InviteCodeCard } from "@/components/invite-card";
 import { AddEmployees } from "@/components/add-employees";
+import { InstallApp } from "@/components/install-app";
 import {
   createCorrection,
   createLeaveRequest,
@@ -788,6 +789,9 @@ export function ProfilePanel({
             </button>
           </>
         )}
+        <div className="mt-4">
+          <InstallApp />
+        </div>
       </div>
     </form>
   );

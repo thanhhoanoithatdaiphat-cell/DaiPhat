@@ -3,12 +3,13 @@
   "short_name": "Vào Ca",
   "description": "Chấm công bằng GPS và ảnh",
   "lang": "vi",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#1C130C",
-  "theme_color": "#1C130C",
+  "background_color": "#e9e7e0",
+  "theme_color": "#1d1e1b",
   "icons": [
     {
       "src": "/icon-192.png",

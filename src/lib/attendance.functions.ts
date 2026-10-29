@@ -1193,11 +1193,11 @@ export const listRankings = createServerFn({ method: "POST" })
         and a.offsite = false
       order by a.punched_at asc
     `;
-    const byUser = new Map<string, { fullName: string; days: Map<string, string> }>();
+    const byUser = new Map<string, { userId: string; fullName: string; days: Map<string, string> }>();
     for (const row of rows) {
       const at = stamp(row.punched_at);
       const day = vnDateKey(at);
-      const bucket = byUser.get(row.user_id) ?? { fullName: row.full_name, days: new Map() };
+      const bucket = byUser.get(row.user_id) ?? { userId: row.user_id, fullName: row.full_name, days: new Map() };
       if (!bucket.days.has(day)) bucket.days.set(day, at);
       byUser.set(row.user_id, bucket);
     }
@@ -1211,17 +1211,32 @@ export const listRankings = createServerFn({ method: "POST" })
         return late < settings.lateMinutes;
       }).length;
       consistent.push({
+        userId: bucket.userId,
+        avatar: null,
         fullName: bucket.fullName,
         days: times.length,
         onTime,
         rate: onTime / times.length,
       });
       const avg = times.reduce((sum, t) => sum + vnMinutes(t), 0) / times.length;
-      earliest.push({ fullName: bucket.fullName, avgMinutes: avg, days: times.length });
+      earliest.push({ userId: bucket.userId, avatar: null, fullName: bucket.fullName, avgMinutes: avg, days: times.length });
     }
     consistent.sort((a, b) => b.rate - a.rate || b.days - a.days || a.fullName.localeCompare(b.fullName, "vi"));
     earliest.sort((a, b) => a.avgMinutes - b.avgMinutes || b.days - a.days);
-    return { enabled: true, consistent: consistent.slice(0, 8), earliest: earliest.slice(0, 8) };
+    const top = { consistent: consistent.slice(0, 8), earliest: earliest.slice(0, 8) };
+    // Ảnh đại diện chỉ lấy cho những người có trong bảng (tối đa 16), không kéo cả công ty.
+    const ids = [...new Set([...top.consistent, ...top.earliest].map((r) => r.userId))];
+    if (ids.length) {
+      const found = await Promise.all(
+        ids.map(async (id) => {
+          const r = await sql<{ avatar_data: string | null }>`select avatar_data from profiles where user_id = ${id}`;
+          return [id, r[0]?.avatar_data ?? null] as const;
+        }),
+      );
+      const map = new Map(found);
+      for (const r of [...top.consistent, ...top.earliest]) r.avatar = map.get(r.userId) ?? null;
+    }
+    return { enabled: true, ...top };
   });
 
 function csvCell(value: string): string {
@@ -1448,14 +1463,12 @@ export const reviewOvertime = createServerFn({ method: "POST" })
 
 /** Nhân viên tự sửa: chỉ họ tên và ảnh đại diện. Mã NV, phòng ban, chức danh, ngày vào làm do quản trị quyết định (adminUpdateProfile). */
 export const updateProfile = createServerFn({ method: "POST" })
-  .validator((input: { fullName: string; avatar: string }) => {
-    const fullName = input.fullName.trim().slice(0, 80);
-    if (fullName.length < 2) throw new Error("Tên cần ít nhất 2 ký tự");
+  .validator((input: { avatar: string }) => {
     const avatar = input.avatar.trim();
-    if (avatar && (!avatar.startsWith("data:image/jpeg;base64,") || avatar.length > 180_000)) {
+    if (!avatar || !avatar.startsWith("data:image/jpeg;base64,") || avatar.length > 180_000) {
       throw new Error("Ảnh đại diện quá nặng hoặc không đúng định dạng.");
     }
-    return { fullName, avatar };
+    return { avatar };
   })
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
@@ -1463,8 +1476,7 @@ export const updateProfile = createServerFn({ method: "POST" })
     const sql = await getSql();
     await sql`
       update profiles
-      set full_name = ${data.fullName},
-          avatar_data = coalesce(${data.avatar || null}, avatar_data)
+      set avatar_data = ${data.avatar}
       where user_id = ${profile.userId}
     `;
     return { ok: true };

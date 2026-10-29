@@ -119,7 +119,7 @@ export function Workspace({ user }: { user: AppUser }) {
           {data && tab === "ranks" ? (
             <div className="px-4 py-4">
               <BackToProfile onClick={() => setTab("profile")} />
-              <RankPanel />
+              <RankPanel selfId={data.profile.userId} />
             </div>
           ) : null}
           {data && tab === "manage" ? (

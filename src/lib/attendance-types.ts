@@ -191,8 +191,8 @@ export type PunchResult =
 
 export type RankLists = {
   enabled: boolean;
-  consistent: { fullName: string; days: number; onTime: number; rate: number }[];
-  earliest: { fullName: string; avgMinutes: number; days: number }[];
+  consistent: { userId: string; fullName: string; avatar: string | null; days: number; onTime: number; rate: number }[];
+  earliest: { userId: string; fullName: string; avatar: string | null; avgMinutes: number; days: number }[];
 };
 
 export type MonthPerson = {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { downloadCsv } from "@/lib/download";
-import { ChevronLeft, ChevronRight, MapPin } from "lucide-react";
+import { ChevronLeft, ChevronRight, Crown, MapPin } from "lucide-react";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
 import { countableOvertime, workedMinutes } from "@/lib/month-grid";
 import { CameraSheet } from "@/components/camera-sheet";
@@ -658,39 +658,31 @@ export function ProfilePanel({
   onChanged: () => Promise<void>;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [name, setName] = useState(data.profile.fullName);
-  const [avatar, setAvatar] = useState(data.profile.avatar ?? "");
+  const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
-  const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const initial = (name || "N").trim().charAt(0).toUpperCase();
+  const shown = draft || data.profile.avatar || "";
+  const initial = (data.profile.fullName || "N").trim().charAt(0).toUpperCase();
 
   async function onFile(file: File | undefined) {
     if (!file) return;
     setError("");
     setSaved(false);
     try {
-      setAvatar(await compressAvatar(file));
+      setDraft(await compressAvatar(file));
     } catch (err) {
       setError(errorText(err));
     }
   }
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
+  async function saveAvatar() {
     setBusy(true);
     setError("");
-    setSaved(false);
     try {
-      await updateProfile({
-        data: {
-          fullName: name,
-          avatar: avatar && avatar !== data.profile.avatar ? avatar : "",
-        },
-      });
+      await updateProfile({ data: { avatar: draft } });
+      setDraft("");
       setSaved(true);
-      setEditing(false);
       await onChanged();
     } catch (err) {
       setError(errorText(err));
@@ -699,26 +691,16 @@ export function ProfilePanel({
     }
   }
 
-  function cancelEdit() {
-    setName(data.profile.fullName);
-    setAvatar(data.profile.avatar ?? "");
-    setError("");
-    setEditing(false);
-  }
-
   return (
-    <form className="space-y-4" onSubmit={submit}>
+    <div className="space-y-4">
       <div className="flex flex-col items-center rounded-xl border border-edge bg-card px-5 py-6">
         <button
           type="button"
-          onClick={() => {
-            setEditing(true);
-            fileRef.current?.click();
-          }}
+          onClick={() => fileRef.current?.click()}
           className="relative grid size-28 place-items-center overflow-hidden rounded-full bg-paper text-2xl font-medium ring-4 ring-ice"
-          aria-label="Tải ảnh đại diện"
+          aria-label="Đổi ảnh đại diện"
         >
-          {avatar ? <img src={avatar} alt="" className="size-28 object-cover" /> : initial}
+          {shown ? <img src={shown} alt="" className="size-28 object-cover" /> : initial}
         </button>
         <input
           ref={fileRef}
@@ -730,71 +712,51 @@ export function ProfilePanel({
             e.target.value = "";
           }}
         />
-        {editing ? (
-          <button type="button" className="mt-3 text-sm font-medium text-ink" onClick={() => fileRef.current?.click()}>
+        {draft ? (
+          <div className="mt-3 grid w-full grid-cols-2 gap-2">
+            <button type="button" className={secondaryBtn} onClick={() => setDraft("")} disabled={busy}>
+              Hủy
+            </button>
+            <button type="button" className={primaryBtn} onClick={() => void saveAvatar()} disabled={busy}>
+              {busy ? "Đang lưu…" : "Lưu ảnh"}
+            </button>
+          </div>
+        ) : (
+          <button type="button" className="mt-3 text-sm font-medium text-ink underline" onClick={() => fileRef.current?.click()}>
             Đổi ảnh đại diện
           </button>
-        ) : null}
+        )}
+        {error ? <p className="mt-2 text-sm text-clay">{error}</p> : null}
+        {saved && !draft ? <p className="mt-2 text-sm text-ok">Đã lưu ảnh đại diện.</p> : null}
         <p className="mt-4 text-xs font-semibold text-ice">{data.companyName}</p>
-        <p className="font-display text-3xl font-bold">{name || "Nhân viên"}</p>
+        <p className="font-display text-3xl font-bold">{data.profile.fullName || "Nhân viên"}</p>
         <span className="mt-1 rounded-full bg-sand px-3 py-0.5 text-xs font-semibold text-muted">{ROLE_LABEL[data.profile.role]}</span>
       </div>
 
       <div className="rounded-xl border border-edge bg-card p-4">
-        {editing ? (
-          <div className="space-y-3">
-            <label className="block space-y-1 text-sm">
-              Họ tên
-              <input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} required minLength={2} autoFocus />
-            </label>
-            <p className="text-xs text-muted">Bạn chỉ tự sửa được họ tên và ảnh đại diện. Các thông tin còn lại do quản trị cập nhật.</p>
-            {error ? <p className="text-sm text-clay">{error}</p> : null}
-            <div className="grid grid-cols-2 gap-2">
-              <button className={secondaryBtn} type="button" onClick={cancelEdit} disabled={busy}>
-                Hủy
-              </button>
-              <button className={primaryBtn} type="submit" disabled={busy}>
-                {busy ? "Đang lưu…" : "Lưu hồ sơ"}
-              </button>
+        <dl className="divide-y divide-line text-sm">
+          {(
+            [
+              ["Họ tên", data.profile.fullName],
+              ["Số đăng nhập", data.profile.phone ? displayPhone(data.profile.phone) : "Chưa gắn"],
+              ["Mã nhân viên", data.profile.employeeCode],
+              ["Phòng ban", data.profile.department],
+              ["Chức danh", data.profile.jobTitle],
+              ["Ngày vào làm", data.profile.startedOn ? data.profile.startedOn.split("-").reverse().join("/") : null],
+            ] as const
+          ).map(([label, value]) => (
+            <div key={label} className="flex items-center justify-between gap-4 py-2.5 first:pt-0">
+              <dt className="text-muted">{label}</dt>
+              <dd className={`min-w-0 truncate text-right font-medium ${value ? "" : "text-muted"}`}>{value || "Chưa cập nhật"}</dd>
             </div>
-          </div>
-        ) : (
-          <>
-            <dl className="divide-y divide-line text-sm">
-              {(
-                [
-                  ["Họ tên", data.profile.fullName],
-                  ["Số đăng nhập", data.profile.phone ? displayPhone(data.profile.phone) : "Chưa gắn"],
-                  ["Mã nhân viên", data.profile.employeeCode],
-                  ["Phòng ban", data.profile.department],
-                  ["Chức danh", data.profile.jobTitle],
-                  ["Ngày vào làm", data.profile.startedOn ? data.profile.startedOn.split("-").reverse().join("/") : null],
-                ] as const
-              ).map(([label, value]) => (
-                <div key={label} className="flex items-center justify-between gap-4 py-2.5 first:pt-0">
-                  <dt className="text-muted">{label}</dt>
-                  <dd className={`min-w-0 truncate text-right font-medium ${value ? "" : "text-muted"}`}>{value || "Chưa cập nhật"}</dd>
-                </div>
-              ))}
-            </dl>
-            {saved ? <p className="mt-2 text-sm text-ok">Đã lưu hồ sơ.</p> : null}
-            <button
-              className={`${secondaryBtn} mt-3 w-full`}
-              type="button"
-              onClick={() => {
-                setSaved(false);
-                setEditing(true);
-              }}
-            >
-              Sửa họ tên và ảnh
-            </button>
-          </>
-        )}
+          ))}
+        </dl>
+        <p className="mt-3 text-xs text-muted">Bạn chỉ tự đổi được ảnh đại diện. Họ tên và các thông tin còn lại do quản trị cập nhật.</p>
         <div className="mt-4">
           <InstallApp />
         </div>
       </div>
-    </form>
+    </div>
   );
 }
 
@@ -1562,23 +1524,111 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
   );
 }
 
-export function RankPanel() {
+type RankEntry = { id: string; name: string; avatar: string | null; main: string; sub: string; short: string; bar: number };
+
+const MEDAL = [
+  { ring: "ring-[#f5c542]", chip: "bg-[#f5c542] text-[#1c130c]", label: "1" },
+  { ring: "ring-[#c9ced6]", chip: "bg-[#c9ced6] text-[#1c130c]", label: "2" },
+  { ring: "ring-[#d28a52]", chip: "bg-[#d28a52] text-[#1c130c]", label: "3" },
+];
+
+function RankAvatar({ name, avatar, className }: { name: string; avatar: string | null; className: string }) {
+  return avatar ? (
+    <img src={avatar} alt="" className={`${className} shrink-0 rounded-full object-cover`} />
+  ) : (
+    <span className={`${className} grid shrink-0 place-items-center rounded-full bg-sand font-semibold`}>{initials(name)}</span>
+  );
+}
+
+function Podium({ top, selfId }: { top: RankEntry[]; selfId: string }) {
+  // Xếp theo thứ tự 2 – 1 – 3 để người đứng đầu ở giữa và cao nhất.
+  const order = [1, 0, 2].filter((i) => top[i]);
+  return (
+    <div className="grid grid-cols-3 items-end gap-2 rounded-2xl border border-edge bg-card px-3 pt-5 pb-4">
+      {order.map((i) => {
+        const e = top[i];
+        const first = i === 0;
+        const m = MEDAL[i];
+        return (
+          <div key={e.id} className={`flex min-w-0 flex-col items-center text-center ${first ? "-mt-2" : ""}`}>
+            {first ? <Crown className="mb-1 size-5 text-[#f5c542]" aria-hidden /> : <span className="mb-1 size-5" />}
+            <div className="relative">
+              <RankAvatar name={e.name} avatar={e.avatar} className={`${first ? "size-20" : "size-16"} ring-4 ${m.ring}`} />
+              <span className={`absolute -bottom-2 left-1/2 grid size-6 -translate-x-1/2 place-items-center rounded-full text-xs font-bold ${m.chip}`}>{m.label}</span>
+            </div>
+            <p className={`mt-4 line-clamp-2 min-h-10 w-full text-sm leading-5 font-semibold ${e.id === selfId ? "text-ice" : ""}`}>{e.name}</p>
+            <p className={`font-display font-bold tabular-nums ${first ? "text-2xl" : "text-xl"}`}>{e.main}</p>
+            <p className="w-full truncate text-xs text-muted">{e.short}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function RankRows({ rows, start, selfId }: { rows: RankEntry[]; start: number; selfId: string }) {
+  return (
+    <ol className="divide-y divide-line overflow-hidden rounded-xl border border-edge bg-card">
+      {rows.map((e, i) => (
+        <li key={e.id} className={`flex items-center gap-3 px-3 py-2.5 ${e.id === selfId ? "bg-ice/15" : ""}`}>
+          <span className="w-5 text-center text-sm font-semibold text-muted tabular-nums">{start + i}</span>
+          <RankAvatar name={e.name} avatar={e.avatar} className="size-10 text-xs" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">{e.name}{e.id === selfId ? " (bạn)" : ""}</p>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-sand">
+              <div className="h-full rounded-full bg-ice" style={{ width: `${Math.max(4, Math.round(e.bar * 100))}%` }} />
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="font-display text-lg leading-none font-bold tabular-nums">{e.main}</p>
+            <p className="mt-0.5 text-xs text-muted">{e.sub}</p>
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+export function RankPanel({ selfId = "" }: { selfId?: string }) {
   const [month, setMonth] = useState(vnMonthKey());
   const [data, setData] = useState<RankLists | null>(null);
   const [error, setError] = useState("");
+  const [board, setBoard] = useState<"consistent" | "earliest">("consistent");
   useEffect(() => {
     setData(null);
     listRankings({ data: month })
       .then(setData)
       .catch((err) => setError(errorText(err)));
   }, [month]);
+
+  const entries: RankEntry[] = !data
+    ? []
+    : board === "consistent"
+      ? data.consistent.map((r) => ({ id: r.userId, name: r.fullName, avatar: r.avatar, main: `${Math.round(r.rate * 100)}%`, sub: `${r.onTime}/${r.days} ngày đúng giờ`, short: `${r.onTime}/${r.days} ngày`, bar: r.rate }))
+      : (() => {
+          const worst = Math.max(...data.earliest.map((r) => r.avgMinutes), 1);
+          const best = Math.min(...data.earliest.map((r) => r.avgMinutes), worst);
+          return data.earliest.map((r) => ({
+            id: r.userId,
+            name: r.fullName,
+            avatar: r.avatar,
+            main: minutesToHm(r.avgMinutes),
+            sub: `trung bình · ${r.days} ngày`,
+            short: `${r.days} ngày`,
+            bar: worst === best ? 1 : 1 - (r.avgMinutes - best) / (worst - best) * 0.8,
+          }));
+        })();
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <button type="button" className="grid size-11 place-items-center rounded-full border border-line bg-card" onClick={() => setMonth((m) => shiftMonth(m, -1))} aria-label="Tháng trước">
           <ChevronLeft className="size-5" />
         </button>
-        <h2 className="font-display text-2xl font-semibold">{formatMonthLabel(month)}</h2>
+        <div className="text-center">
+          <p className="text-xs font-semibold text-ice">Bảng xếp hạng</p>
+          <h2 className="font-display text-2xl font-semibold">{formatMonthLabel(month)}</h2>
+        </div>
         <button type="button" className="grid size-11 place-items-center rounded-full border border-line bg-card" onClick={() => setMonth((m) => shiftMonth(m, 1))} aria-label="Tháng sau">
           <ChevronRight className="size-5" />
         </button>
@@ -1590,28 +1640,29 @@ export function RankPanel() {
       ) : null}
       {data?.enabled ? (
         <>
-          <RankList title="Đi đều nhất" empty="Chưa đủ dữ liệu vào ca." rows={data.consistent.map((row, index) => ({ id: `${index}-${row.fullName}`, line: `${row.fullName} · ${row.onTime}/${row.days} ngày đúng giờ` }))} />
-          <RankList title="Vào sớm nhất" empty="Chưa có giờ vào trong tháng." rows={data.earliest.map((row, index) => ({ id: `${index}-${row.fullName}`, line: `${row.fullName} · trung bình ${minutesToHm(row.avgMinutes)}` }))} />
+          <div className="grid grid-cols-2 gap-1 rounded-xl bg-sand p-1 text-sm font-semibold" role="tablist">
+            {(
+              [
+                ["consistent", "Đi đều nhất"],
+                ["earliest", "Vào sớm nhất"],
+              ] as const
+            ).map(([k, t]) => (
+              <button key={k} type="button" role="tab" aria-selected={board === k} onClick={() => setBoard(k)} className={`h-10 rounded-lg ${board === k ? "bg-ice text-[#1c130c]" : "text-muted"}`}>
+                {t}
+              </button>
+            ))}
+          </div>
+          {entries.length === 0 ? (
+            <p className="rounded-md border border-dashed border-line bg-card p-4 text-sm text-muted">{board === "consistent" ? "Chưa đủ dữ liệu vào ca." : "Chưa có giờ vào trong tháng."}</p>
+          ) : (
+            <>
+              <Podium top={entries.slice(0, 3)} selfId={selfId} />
+              {entries.length > 3 ? <RankRows rows={entries.slice(3)} start={4} selfId={selfId} /> : null}
+            </>
+          )}
         </>
       ) : null}
     </div>
-  );
-}
-
-function RankList({ title, rows, empty }: { title: string; rows: { id: string; line: string }[]; empty: string }) {
-  return (
-    <section className="rounded-md border border-line bg-card p-4">
-      <h2 className="font-semibold">{title}</h2>
-      {rows.length === 0 ? <p className="mt-2 text-sm text-muted">{empty}</p> : null}
-      <ol className="mt-3 space-y-2">
-        {rows.map((row, index) => (
-          <li key={row.id} className="flex gap-3 text-sm">
-            <span className="grid size-7 shrink-0 place-items-center rounded-full bg-sand font-semibold tabular-nums">{index + 1}</span>
-            <span className="pt-1">{row.line}</span>
-          </li>
-        ))}
-      </ol>
-    </section>
   );
 }
 

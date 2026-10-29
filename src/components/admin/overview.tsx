@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { downloadCsv } from "@/lib/download";
 import { Download, Search } from "lucide-react";
 import { errorText } from "@/components/ui";
 import { exportTimesheet, reviewCorrection, reviewLeave, reviewOvertime, reviewOvertimeRequest } from "@/lib/attendance.functions";
@@ -180,12 +181,7 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
     setMessage("");
     try {
       const file = await exportTimesheet({ data: vnMonthKey() });
-      const url = URL.createObjectURL(new Blob([file.csv], { type: "text/csv;charset=utf-8" }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = file.filename;
-      link.click();
-      URL.revokeObjectURL(url);
+      downloadCsv(file.filename, file.csv);
     } catch (err) {
       setMessage(errorText(err));
     }

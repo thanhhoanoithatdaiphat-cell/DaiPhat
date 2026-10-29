@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { downloadCsv as downloadCsvFile } from "@/lib/download";
 import { ChevronLeft, ChevronRight, Download, Lock, Search, X } from "lucide-react";
 import { errorText } from "@/components/ui";
 import { getHistory, listAudit } from "@/lib/attendance.functions";
@@ -80,12 +81,7 @@ function csvCell(v: string): string {
 }
 function downloadCsv(filename: string, header: string[], lines: string[][]) {
   const body = [header, ...lines].map((r) => r.map(csvCell).join(",")).join("\r\n");
-  const url = URL.createObjectURL(new Blob([`\uFEFF${body}`], { type: "text/csv;charset=utf-8" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadCsvFile(filename, body);
 }
 function dayLabel(cell: DayCell): string {
   return cell.kind === "off" ? (LEAVE_TEXT[cell.label] ?? "Nghỉ") : KIND_TEXT[cell.kind];
@@ -187,6 +183,7 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
           isHoliday: holidays.has(d),
           hasApprovedLeave: !!hist.leaves[p.userId]?.[d],
           leaveKind: hist.leaves[p.userId]?.[d] ?? null,
+          extraOvertimeMinutes: hist.extraOt?.[p.userId]?.[d] ?? 0,
           lateThreshold: data.settings.lateMinutes,
           schedule: scheduleOf(data.settings),
           fullDayMinutes: data.settings.fullDayMinutes,
@@ -264,7 +261,7 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
         case "leave": return c.kind === "off";
         case "offsite": return c.offsite;
         case "corrected": return c.corrected;
-        case "overtime": return c.overtimeMinutes > 0;
+        case "overtime": return c.overtimeMinutes > 0 || c.extraOvertimeMinutes > 0;
       }
     });
     list.sort((a, b) => (asc ? 1 : -1) * a.date.localeCompare(b.date) || compareByCode({ employeeCode: a.code, fullName: a.fullName }, { employeeCode: b.code, fullName: b.fullName }));
@@ -347,7 +344,7 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
           fmtDate(r.date), WEEKDAY[weekdayOf(r.date)], r.code ?? "", r.fullName, r.dept ?? "", dayLabel(r.cell),
           r.cell.firstIn ? vnTime(r.cell.firstIn) : "", r.cell.lastOut ? vnTime(r.cell.lastOut) : "",
           r.cell.workedMinutes ? minutesToHm(r.cell.workedMinutes) : "", r.cell.cong == null ? "" : fmtCong(r.cell.cong),
-          String(r.cell.lateMinutes || ""), r.cell.overtimeMinutes ? `${minutesToHm(r.cell.overtimeMinutes)} (${r.cell.overtimeStatus})` : "",
+          String(r.cell.lateMinutes || ""), [r.cell.overtimeMinutes ? `${minutesToHm(r.cell.overtimeMinutes)} (${r.cell.overtimeStatus})` : "", r.cell.extraOvertimeMinutes ? `theo đơn ${minutesToHm(r.cell.extraOvertimeMinutes)}` : ""].filter(Boolean).join(" + "),
           r.cell.offsite ? "Có" : "", r.cell.corrected ? "Có" : "", r.locations,
         ]));
     } else if (tab === "punch") {
@@ -474,6 +471,7 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
                   {r.cell.offsite ? <Chip tone="clay">Ngoài vùng</Chip> : null}
                   {r.cell.corrected ? <Chip tone="muted">Theo đơn</Chip> : null}
                   {r.cell.overtimeMinutes > 0 ? <Chip tone="ink">TC {minutesToHm(r.cell.overtimeMinutes)}</Chip> : null}
+                  {r.cell.extraOvertimeMinutes > 0 ? <Chip tone="ink">TC trưa/sớm {minutesToHm(r.cell.extraOvertimeMinutes)}</Chip> : null}
                 </span>
               </Td>
             </tr>

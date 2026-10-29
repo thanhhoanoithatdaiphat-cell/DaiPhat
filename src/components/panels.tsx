@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { downloadCsv } from "@/lib/download";
 import { ChevronLeft, ChevronRight, MapPin } from "lucide-react";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
 import { countableOvertime, workedMinutes } from "@/lib/month-grid";
@@ -1956,13 +1957,7 @@ function TimesheetExport() {
     setError("");
     try {
       const file = await exportTimesheet({ data: month });
-      const blob = new Blob([file.csv], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = file.filename;
-      link.click();
-      URL.revokeObjectURL(url);
+      downloadCsv(file.filename, file.csv);
     } catch (err) {
       setError(errorText(err));
     } finally {

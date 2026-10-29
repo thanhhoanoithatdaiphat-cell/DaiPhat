@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Copy, Download, Printer } from "lucide-react";
+import { downloadCsv as downloadCsvFile } from "@/lib/download";
 import { errorText, fieldClass, primaryBtn, secondaryBtn } from "@/components/ui";
 import { adminCreateEmployees, type NewEmployeeInput, type NewEmployeeResult } from "@/lib/attendance.functions";
 import { displayPhone, normalizeVnPhone, phoneFromLoginEmail } from "@/lib/phone";
@@ -74,12 +75,7 @@ function printSlips(list: NewEmployeeResult[], url: string) {
 function downloadCsv(list: NewEmployeeResult[], url: string) {
   const q = (s: string) => `"${s.replace(/"/g, '""')}"`;
   const lines = ["Họ tên,Số điện thoại,Mật khẩu,Địa chỉ", ...list.map((r) => [q(r.fullName), q(`'${r.phone}`), q(r.password ?? ""), q(url)].join(","))];
-  const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "tai-khoan-nhan-vien.csv";
-  a.click();
-  URL.revokeObjectURL(a.href);
+  downloadCsvFile("tai-khoan-nhan-vien.csv", lines.join("\n"));
 }
 
 /** Kết quả: phiếu đăng nhập chỉ hiện một lần vì hệ thống không lưu mật khẩu dạng đọc được. */

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { downloadCsv } from "@/lib/download";
 import { AlertTriangle, ChevronLeft, ChevronRight, Download, Lock, LockOpen, Search, X } from "lucide-react";
 import { errorText } from "@/components/ui";
 import { exportTimesheet, getMonthGrid, lockMonth } from "@/lib/attendance.functions";
@@ -81,6 +82,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
           isHoliday: grid.holidays?.includes(d) ?? false,
           hasApprovedLeave: !!grid.leaves?.[p.userId]?.[d],
           leaveKind: grid.leaves?.[p.userId]?.[d] ?? null,
+          extraOvertimeMinutes: grid.extraOt?.[p.userId]?.[d] ?? 0,
           lateThreshold: data.settings.lateMinutes,
           schedule: scheduleOf(data.settings),
           fullDayMinutes: data.settings.fullDayMinutes,
@@ -114,12 +116,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
     setBusy(true);
     try {
       const file = await exportTimesheet({ data: month });
-      const url = URL.createObjectURL(new Blob([file.csv], { type: "text/csv;charset=utf-8" }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = file.filename;
-      link.click();
-      URL.revokeObjectURL(url);
+      downloadCsv(file.filename, file.csv);
     } catch (err) {
       setError(errorText(err));
     }
@@ -374,7 +371,7 @@ function PersonDetail({
     .filter((x) => x.c.kind === "late");
   const otDays = cells
     .map((c, i) => ({ c, d: days[i] }))
-    .filter((x) => x.c.overtimeMinutes > 0 && x.c.overtimeStatus === "approved");
+    .filter((x) => (x.c.overtimeMinutes > 0 && x.c.overtimeStatus === "approved") || x.c.extraOvertimeMinutes > 0);
   const absentDays = cells
     .map((c, i) => ({ c, d: days[i] }))
     .filter((x) => x.c.kind === "absent");
@@ -413,7 +410,7 @@ function PersonDetail({
         </Section>
         <Section title={`Ngày tăng ca đã duyệt (${otDays.length})`}>
           {otDays.length === 0 ? <Empty /> : otDays.map(({ c, d }) => (
-            <DayLine key={d} date={d} text={minutesToHm(c.overtimeMinutes)} onClick={() => onPickDay(d)} />
+            <DayLine key={d} date={d} text={minutesToHm((c.overtimeStatus === "approved" ? c.overtimeMinutes : 0) + c.extraOvertimeMinutes) + (c.extraOvertimeMinutes ? ` (gồm ${minutesToHm(c.extraOvertimeMinutes)} theo đơn)` : "")} onClick={() => onPickDay(d)} />
           ))}
         </Section>
         <Section title={`Ngày vắng (${absentDays.length})`}>

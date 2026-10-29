@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { downloadCsv } from "@/lib/download";
+import { downloadXlsx } from "@/lib/xlsx-lite";
+import { timesheetSheets } from "@/lib/timesheet-xlsx";
 import { ChevronLeft, ChevronRight, Crown, MapPin } from "lucide-react";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
 import { countableOvertime, workedMinutes } from "@/lib/month-grid";
@@ -2034,7 +2035,7 @@ function TimesheetExport() {
     setError("");
     try {
       const file = await exportTimesheet({ data: month });
-      downloadCsv(file.filename, file.csv);
+      downloadXlsx(`bang-cong-${file.month}.xlsx`, timesheetSheets(file));
     } catch (err) {
       setError(errorText(err));
     } finally {

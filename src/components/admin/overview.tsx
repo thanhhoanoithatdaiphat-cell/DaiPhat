@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { downloadCsv } from "@/lib/download";
+import { downloadXlsx } from "@/lib/xlsx-lite";
+import { timesheetSheets } from "@/lib/timesheet-xlsx";
 import { Download, Search } from "lucide-react";
 import { errorText } from "@/components/ui";
 import { exportTimesheet, reviewCorrection, reviewLeave, reviewOvertime, reviewOvertimeRequest } from "@/lib/attendance.functions";
@@ -181,7 +182,7 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
     setMessage("");
     try {
       const file = await exportTimesheet({ data: vnMonthKey() });
-      downloadCsv(file.filename, file.csv);
+      downloadXlsx(`bang-cong-${file.month}.xlsx`, timesheetSheets(file));
     } catch (err) {
       setMessage(errorText(err));
     }

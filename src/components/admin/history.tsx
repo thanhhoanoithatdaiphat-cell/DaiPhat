@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { downloadCsv as downloadCsvFile } from "@/lib/download";
+import { downloadXlsx } from "@/lib/xlsx-lite";
+import { tableSheet, viDate } from "@/lib/timesheet-xlsx";
 import { ChevronLeft, ChevronRight, Download, Lock, Search, X } from "lucide-react";
 import { errorText } from "@/components/ui";
 import { getHistory, listAudit } from "@/lib/attendance.functions";
@@ -75,13 +76,11 @@ function fmtDateTime(iso: string | null): string {
 function fmtCong(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
-function csvCell(v: string): string {
-  const safe = /^[=+\-@]/.test(v) ? `'${v}` : v;
-  return `"${safe.replace(/"/g, '""')}"`;
-}
-function downloadCsv(filename: string, header: string[], lines: string[][]) {
-  const body = [header, ...lines].map((r) => r.map(csvCell).join(",")).join("\r\n");
-  downloadCsvFile(filename, body);
+function downloadTable(filename: string, header: string[], lines: string[][], numeric: number[] = []) {
+  const title = filename.includes("nhat-ky") ? "NHẬT KÝ DUYỆT ĐƠN" : filename.includes("tung-luot") ? "LỊCH SỬ CHẤM CÔNG TỪNG LƯỢT" : "LỊCH SỬ CHẤM CÔNG THEO NGÀY";
+  const range = /(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})/.exec(filename);
+  const sub = range ? `Từ ${viDate(range[1])} đến ${viDate(range[2])} · Xuất ngày ${new Date().toLocaleDateString("vi-VN")}` : `Xuất ngày ${new Date().toLocaleDateString("vi-VN")}`;
+  downloadXlsx(filename.replace(/\.csv$/, ".xlsx"), [tableSheet({ name: "Dữ liệu", title, subtitle: sub, header, rows: lines, numeric })]);
 }
 function dayLabel(cell: DayCell): string {
   return cell.kind === "off" ? (LEAVE_TEXT[cell.label] ?? "Nghỉ") : KIND_TEXT[cell.kind];
@@ -339,7 +338,7 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
   function exportCsv() {
     const name = `lich-su-cham-cong-${from}_${to}`;
     if (tab === "day") {
-      downloadCsv(`${name}-theo-ngay.csv`, ["Ngày", "Thứ", "Mã NV", "Nhân viên", "Phòng ban", "Trạng thái", "Giờ vào", "Giờ ra", "Giờ làm", "Công", "Phút muộn", "Tăng ca", "Ngoài vùng", "Sửa theo đơn", "Địa điểm"],
+      downloadTable(`${name}-theo-ngay.csv`, ["Ngày", "Thứ", "Mã NV", "Nhân viên", "Phòng ban", "Trạng thái", "Giờ vào", "Giờ ra", "Giờ làm", "Công", "Phút muộn", "Tăng ca", "Ngoài vùng", "Sửa theo đơn", "Địa điểm"],
         shownDays.map((r) => [
           fmtDate(r.date), WEEKDAY[weekdayOf(r.date)], r.code ?? "", r.fullName, r.dept ?? "", dayLabel(r.cell),
           r.cell.firstIn ? vnTime(r.cell.firstIn) : "", r.cell.lastOut ? vnTime(r.cell.lastOut) : "",
@@ -348,14 +347,14 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
           r.cell.offsite ? "Có" : "", r.cell.corrected ? "Có" : "", r.locations,
         ]));
     } else if (tab === "punch") {
-      downloadCsv(`${name}-tung-luot.csv`, ["Ngày", "Giờ", "Mã NV", "Nhân viên", "Phòng ban", "Loại", "Địa điểm", "Khoảng cách (m)", "Phút muộn", "Tăng ca (phút)", "Trạng thái tăng ca", "Ngoài vùng", "Theo đơn", "Có ảnh"],
+      downloadTable(`${name}-tung-luot.csv`, ["Ngày", "Giờ", "Mã NV", "Nhân viên", "Phòng ban", "Loại", "Địa điểm", "Khoảng cách (m)", "Phút muộn", "Tăng ca (phút)", "Trạng thái tăng ca", "Ngoài vùng", "Theo đơn", "Có ảnh"],
         shownPunches.map((r) => [
           fmtDate(vnDateKey(r.at)), vnTime(r.at), r.code ?? "", r.fullName, r.dept ?? "", r.type === "in" ? "Vào" : "Ra", r.place,
           r.distanceMeters == null ? "" : String(r.distanceMeters), String(r.lateMinutes || ""), String(r.overtimeMinutes || ""),
           r.overtimeMinutes ? r.overtimeStatus : "", r.offsite ? "Có" : "", r.status === "corrected" ? "Có" : "", r.hasPhoto ? "Có" : "",
         ]));
     } else {
-      downloadCsv(`${name}-nhat-ky-duyet.csv`, ["Loại", "Ngày công", "Nhân viên", "Nội dung", "Lý do", "Trạng thái", "Gửi lúc", "Người duyệt", "Duyệt lúc", "Ghi chú duyệt"],
+      downloadTable(`${name}-nhat-ky-duyet.csv`, ["Loại", "Ngày công", "Nhân viên", "Nội dung", "Lý do", "Trạng thái", "Gửi lúc", "Người duyệt", "Duyệt lúc", "Ghi chú duyệt"],
         shownAudit.map((e) => [AUDIT_KIND[e.kind], fmtDate(e.date), e.fullName, e.subject, e.note, AUDIT_STATUS[e.status].text, fmtDateTime(e.createdAt), e.reviewedByName ?? "", fmtDateTime(e.reviewedAt), e.reviewNote ?? ""]));
     }
   }

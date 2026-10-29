@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { downloadCsv } from "@/lib/download";
+import { downloadXlsx } from "@/lib/xlsx-lite";
+import { timesheetSheets } from "@/lib/timesheet-xlsx";
 import { AlertTriangle, ChevronLeft, ChevronRight, Download, Lock, LockOpen, Search, X } from "lucide-react";
 import { errorText } from "@/components/ui";
 import { exportTimesheet, getMonthGrid, lockMonth } from "@/lib/attendance.functions";
@@ -116,7 +117,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
     setBusy(true);
     try {
       const file = await exportTimesheet({ data: month });
-      downloadCsv(file.filename, file.csv);
+      downloadXlsx(`bang-cong-${file.month}.xlsx`, timesheetSheets(file));
     } catch (err) {
       setError(errorText(err));
     }
@@ -212,7 +213,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
             </button>
           ) : null}
           <button type="button" disabled={busy} className="flex h-10 items-center gap-2 rounded-lg bg-ice px-4 text-sm font-bold text-night" onClick={() => void download()}>
-            <Download className="size-4" /> Tải CSV
+            <Download className="size-4" /> Tải Excel
           </button>
         </div>
       </div>

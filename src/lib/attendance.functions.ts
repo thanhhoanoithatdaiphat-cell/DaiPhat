@@ -1248,12 +1248,12 @@ function csvCell(value: string): string {
 export const exportTimesheet = createServerFn({ method: "POST" })
   .validator((month: string) => assertMonth(month))
   .middleware([authMiddleware])
-  .handler(async ({ context, data: month }): Promise<{ filename: string; csv: string }> => {
+  .handler(async ({ context, data: month }): Promise<{ filename: string; csv: string; month: string; companyName: string; header: string[]; rows: string[][] }> => {
     const profile = await requireProfile(context.userId);
     if (!canReview(profile.role)) throw new Error("Chỉ quản trị và người duyệt được tải bảng công");
     const sql = await getSql();
-    const companies = await sql<{ settings: unknown }>`
-      select settings from companies where id = ${profile.companyId}
+    const companies = await sql<{ name: string; settings: unknown }>`
+      select name, settings from companies where id = ${profile.companyId}
     `;
     const settings = readSettings(companies[0]?.settings);
     const { start, end } = monthRange(month);
@@ -1354,6 +1354,7 @@ export const exportTimesheet = createServerFn({ method: "POST" })
       "Thiếu giờ ra",
     ];
     const lines = [[...header].map(csvCell).join(",")];
+    const table: string[][] = [];
     const sorted = [...days.values()].sort(
       (a, b) => a.name.localeCompare(b.name, "vi") || a.day.localeCompare(b.day),
     );
@@ -1381,8 +1382,7 @@ export const exportTimesheet = createServerFn({ method: "POST" })
       // Chủ nhật/lễ chỉ được nhân hệ số khi tăng ca đã duyệt; chưa duyệt thì chưa tính.
       const converted =
         congDay == null ? "" : isHoliday || isSunday ? (overtimeStatus === "approved" ? String(Math.round(congDay * rate * 100) / 100) : "0") : String(congDay);
-      lines.push(
-        [
+      const cells = [
           bucket.name,
           bucket.code,
           bucket.department,
@@ -1403,12 +1403,18 @@ export const exportTimesheet = createServerFn({ method: "POST" })
           lastOut ? early : "",
           offsite,
           missingOut,
-        ]
-          .map(csvCell)
-          .join(","),
-      );
+        ];
+      table.push(cells);
+      lines.push(cells.map(csvCell).join(","));
     }
-    return { filename: `bang-cong-${month}.csv`, csv: `\uFEFF${lines.join("\r\n")}` };
+    return {
+      filename: `bang-cong-${month}.csv`,
+      csv: `\uFEFF${lines.join("\r\n")}`,
+      month,
+      companyName: companies[0]?.name ?? "",
+      header,
+      rows: table,
+    };
   });
 
 function overtimeLabel(status: OvertimeStatus, minutes: number): string {

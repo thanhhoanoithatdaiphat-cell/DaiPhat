@@ -175,11 +175,63 @@ async function createSql(): Promise<Sql> {
         "or a server route loader, never from client code.",
     );
   }
-  if (dbSource === "neon") return createNeonSql();
+  if (dbSource === "neon") return withSchemaGuard(await createNeonSql());
   if (process.env.NODE_ENV === "production") {
     throw new Error("Thiếu DATABASE_URL. Production cần Postgres thật (Neon), không dùng DB tạm trong bộ nhớ.");
   }
   return createPgliteSql();
+}
+
+/**
+ * Lưới an toàn khi code mới được triển khai trước khi chạy migrate: các cột bổ sung sau này
+ * được tạo nếu chưa có (idempotent, giống hệt các file migrations/0014 và 0015).
+ * Lỗi (ví dụ thiếu quyền) thì bỏ qua, migrate khi build vẫn là đường chính.
+ */
+async function withSchemaGuard(sql: Sql): Promise<Sql> {
+  try {
+    await sql`
+      do $$ begin
+        if to_regclass('attendances') is not null then
+          alter table attendances add column if not exists address text;
+        end if;
+      end $$
+    `;
+    // Giống hệt migrations/0016_must_change_password.sql
+    await sql`
+      do $$ begin
+        if to_regclass('profiles') is not null then
+          alter table profiles add column if not exists must_change_password boolean not null default false;
+        end if;
+      end $$
+    `;
+    // Giống hệt migrations/0015_overtime_requests.sql
+    await sql`
+      do $$ begin
+        if to_regclass('profiles') is not null and to_regclass('companies') is not null then
+          create table if not exists overtime_requests (
+            id serial primary key,
+            user_id text not null references profiles (user_id),
+            company_id text not null references companies (id),
+            work_date date not null,
+            start_time text not null,
+            end_time text not null,
+            minutes integer not null,
+            note text not null,
+            status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+            reviewed_by text,
+            reviewed_at timestamptz,
+            review_note text,
+            created_at timestamptz not null default now()
+          );
+          create index if not exists overtime_requests_company_status_idx on overtime_requests (company_id, status);
+          create index if not exists overtime_requests_user_date_idx on overtime_requests (user_id, work_date);
+        end if;
+      end $$
+    `;
+  } catch (err) {
+    console.warn("[db] schema guard skipped:", err instanceof Error ? err.message : err);
+  }
+  return sql;
 }
 
 /**

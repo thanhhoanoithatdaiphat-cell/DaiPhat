@@ -70,7 +70,7 @@ export const auth = betterAuth({
   secret: secret(),
   database,
   trustedOrigins,
-  emailAndPassword: { enabled: true, minPasswordLength: 8, revokeSessionsOnPasswordReset: true },
+  emailAndPassword: { enabled: true, minPasswordLength: 4, revokeSessionsOnPasswordReset: true },
   hooks: {
     // Kiểm tra mã mời ở server, không phụ thuộc giao diện.
     before: createAuthMiddleware(async (ctx) => {

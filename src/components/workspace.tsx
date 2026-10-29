@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { CalendarDays, ChevronRight, ClipboardList, Clock, Settings2, Trophy, UserRound } from "lucide-react";
 import { UserButton } from "@/lib/auth/gates";
 import type { AppUser } from "@/lib/auth/use-current-user";
-import { getWorkspace } from "@/lib/attendance.functions";
+import { getWorkspace, needsPasswordChange } from "@/lib/attendance.functions";
+import { FirstLoginPassword } from "@/components/change-password";
 import type { WorkspaceData } from "@/lib/attendance-types";
 import { HistoryPanel, ManagePanel, ProfilePanel, PunchPanel, RankPanel, RequestsPanel } from "@/components/panels";
 import { errorText } from "@/components/ui";
@@ -22,6 +23,13 @@ export function Workspace({ user }: { user: AppUser }) {
   const [data, setData] = useState<WorkspaceData | null>(null);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<Tab>("punch");
+  const [askPassword, setAskPassword] = useState(false);
+
+  useEffect(() => {
+    needsPasswordChange()
+      .then((r) => setAskPassword(r.needed))
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     const next = await getWorkspace({
@@ -64,6 +72,7 @@ export function Workspace({ user }: { user: AppUser }) {
 
   return (
     <div className="theme-night flex h-dvh justify-center bg-paper">
+      {askPassword ? <FirstLoginPassword onClose={() => setAskPassword(false)} /> : null}
       <div className="flex h-full w-full max-w-md flex-col bg-paper md:max-w-3xl lg:max-w-4xl">
         {punching ? null : (
           <header className="safe-top flex items-center justify-between gap-3 border-b border-line bg-night-deep px-5 pb-4">

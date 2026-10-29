@@ -7,6 +7,7 @@ import { CameraSheet } from "@/components/camera-sheet";
 import { errorText, fieldClass, primaryBtn, secondaryBtn } from "@/components/ui";
 import { InviteCodeCard } from "@/components/invite-card";
 import { AddEmployees } from "@/components/add-employees";
+import { ChangePasswordForm } from "@/components/change-password";
 import { InstallApp } from "@/components/install-app";
 import {
   createCorrection,
@@ -752,10 +753,35 @@ export function ProfilePanel({
           ))}
         </dl>
         <p className="mt-3 text-xs text-muted">Bạn chỉ tự đổi được ảnh đại diện. Họ tên và các thông tin còn lại do quản trị cập nhật.</p>
+        <PasswordFold />
         <div className="mt-4">
           <InstallApp />
         </div>
       </div>
+    </div>
+  );
+}
+
+function PasswordFold() {
+  const [open, setOpen] = useState(false);
+  const [done, setDone] = useState(false);
+  return (
+    <div className="mt-4 border-t border-line pt-4">
+      {done ? <p className="mb-2 text-sm text-ok">Đã đổi mật khẩu.</p> : null}
+      {open ? (
+        <ChangePasswordForm
+          onDone={() => {
+            setOpen(false);
+            setDone(true);
+          }}
+          onSkip={() => setOpen(false)}
+          skipLabel="Hủy"
+        />
+      ) : (
+        <button type="button" className={`${secondaryBtn} w-full`} onClick={() => { setDone(false); setOpen(true); }}>
+          Đổi mật khẩu
+        </button>
+      )}
     </div>
   );
 }

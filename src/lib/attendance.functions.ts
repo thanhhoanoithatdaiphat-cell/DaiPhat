@@ -1684,9 +1684,9 @@ export const adminCreateEmployees = createServerFn({ method: "POST" })
         }
         await ac.internalAdapter.linkAccount({ userId: user.id, providerId: "credential", accountId: user.id, password: hash });
         await sql`
-          insert into profiles (user_id, company_id, full_name, email, phone, role, employee_code, department, job_title, started_on)
+          insert into profiles (user_id, company_id, full_name, email, phone, role, employee_code, department, job_title, started_on, must_change_password)
           values (${user.id}, ${profile.companyId}, ${p.fullName}, ${email}, ${phone}, 'employee',
-                  ${p.employeeCode || null}, ${p.department || null}, ${p.jobTitle || null}, ${p.startedOn || vnDateKey()}::date)
+                  ${p.employeeCode || null}, ${p.department || null}, ${p.jobTitle || null}, ${p.startedOn || vnDateKey()}::date, true)
           on conflict (user_id) do nothing
         `;
         out.push({ fullName: p.fullName, phone: shown, ok: true, password });
@@ -1717,7 +1717,39 @@ export const adminResetPassword = createServerFn({ method: "POST" })
     const password = await easyPassword();
     await ac.internalAdapter.updatePassword(data.userId, await ac.password.hash(password));
     await ac.internalAdapter.deleteUserSessions(data.userId);
+    await sql`update profiles set must_change_password = true where user_id = ${data.userId}`;
     return { password };
+  });
+
+/** Có phải đăng nhập lần đầu bằng mật khẩu do quản trị cấp, cần đặt mật khẩu riêng không. */
+export const needsPasswordChange = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<{ needed: boolean }> => {
+    try {
+      const sql = await getSql();
+      const rows = await sql<{ must: boolean }>`select must_change_password as must from profiles where user_id = ${context.userId}`;
+      return { needed: rows[0]?.must === true };
+    } catch {
+      return { needed: false };
+    }
+  });
+
+/** Người dùng tự đặt mật khẩu mới (đơn giản, tối thiểu 4 ký tự). */
+export const changeMyPassword = createServerFn({ method: "POST" })
+  .validator((input: { password: string }) => {
+    const password = String(input.password ?? "");
+    if (password.length < 4) throw new Error("Mật khẩu cần ít nhất 4 ký tự");
+    if (password.length > 64) throw new Error("Mật khẩu quá dài");
+    return { password };
+  })
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    const { auth } = await import("@/lib/auth/server");
+    const ac = await auth.$context;
+    await ac.internalAdapter.updatePassword(context.userId, await ac.password.hash(data.password));
+    await sql`update profiles set must_change_password = false where user_id = ${context.userId}`;
+    return { ok: true };
   });
 
 /** Ngày công ty giữ nhân viên đã nghỉ trong danh sách trước khi tự ẩn (dữ liệu chấm công và bảng công cũ vẫn giữ). */

@@ -11,7 +11,7 @@ function mapAuthError(message: string | undefined): string {
   const text = message ?? "";
   if (/already|exist/i.test(text)) return "Số này đã có tài khoản.";
   if (/invalid email or password|invalid credentials/i.test(text)) return "Số hoặc mật khẩu chưa đúng.";
-  if (/password/i.test(text) && /short|least|8/i.test(text)) return "Mật khẩu cần ít nhất 8 ký tự.";
+  if (/password/i.test(text) && /short|least|8/i.test(text)) return "Mật khẩu cần ít nhất 4 ký tự.";
   if (/origin/i.test(text)) return "Không vào được từ trang này.";
   if (/too many/i.test(text)) return "Nhập sai quá nhiều lần. Hãy xin mã mới.";
   if (/expired/i.test(text)) return "Mã đã hết hạn. Hãy xin mã mới.";
@@ -169,7 +169,7 @@ export function AuthPanel() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              minLength={8}
+              minLength={4}
               autoComplete={mode === "in" ? "current-password" : "new-password"}
             />
           </label>

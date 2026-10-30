@@ -1,5 +1,6 @@
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import appCss from "../styles.css?url";
+import { VnValidation } from "@/components/vn-validation";
 
 const APP_NAME = "Vào Ca";
 
@@ -26,6 +27,7 @@ export const Route = createRootRoute({
         <HeadContent />
       </head>
       <body>
+        <VnValidation />
         <Outlet />
         <Scripts />
       </body>

@@ -40,6 +40,27 @@ export type LocationRow = {
   isActive: boolean;
 };
 
+/** Một người đã chấm công vào ca hôm nay (dùng cho danh sách "ai đã chấm công" của mọi nhân viên). */
+export type TodayCheckin = {
+  userId: string;
+  fullName: string;
+  department: string | null;
+  avatar: string | null;
+  firstInAt: string;
+  lateMinutes: number;
+  offsite: boolean;
+  /** Lượt chấm cuối cùng hôm nay: "out" nghĩa là đã ra ca. */
+  lastType: "in" | "out";
+};
+
+export type TodayCheckins = {
+  /** Số người đã vào ca hôm nay. */
+  punched: number;
+  /** Số nhân viên đang làm việc của công ty. */
+  total: number;
+  people: TodayCheckin[];
+};
+
 export type PunchRow = {
   id: number;
   type: "in" | "out";

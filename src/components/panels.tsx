@@ -31,6 +31,7 @@ import {
   saveLocation,
   setRole,
   adminResetDevice,
+  getTodayCheckins,
   adminResetPassword,
   adminUpdateProfile,
   updateProfile,
@@ -45,6 +46,8 @@ import type {
   PersonRow,
   PunchResult,
   PunchRow,
+  TodayCheckin,
+  TodayCheckins,
   RankLists,
   Role,
   Settings,
@@ -462,7 +465,8 @@ export function PunchPanel({
   }
 
   return (
-    <div className="pz flex h-full min-h-0 flex-col gap-[clamp(0.4rem,1.7dvh,1.25rem)] pb-4">
+    <>
+    <div className="pz flex h-[calc(100%-4.75rem)] min-h-0 flex-col gap-[clamp(0.4rem,1.7dvh,1.25rem)] pb-3">
       <section className="flex shrink-0 items-start justify-between gap-3 px-5 pt-[max(1rem,env(safe-area-inset-top))] md:px-8">
         <div className="min-w-0">
           <p className="text-xs text-muted">{dateLine()}</p>
@@ -611,6 +615,127 @@ export function PunchPanel({
         />
       ) : null}
     </div>
+    <TodayPunchers selfId={data.profile.userId} lateFrom={data.settings.lateMinutes} refreshKey={data.today.length} />
+    </>
+  );
+}
+
+function checkinChip(c: TodayCheckin, lateFrom: number) {
+  if (c.lateMinutes >= lateFrom && c.lateMinutes > 0) return { text: `Muộn ${c.lateMinutes}'`, cls: "bg-clay/20 text-clay" };
+  return { text: "Đúng giờ", cls: "bg-ok/15 text-ok" };
+}
+
+function CheckinRow({ c, rank, selfId, lateFrom }: { c: TodayCheckin; rank: number; selfId: string; lateFrom: number }) {
+  const medal = MEDAL[rank - 1];
+  const chip = checkinChip(c, lateFrom);
+  return (
+    <li className={`flex items-center gap-3 px-3 py-2.5 ${c.userId === selfId ? "bg-ice/10" : ""}`}>
+      <span className={`grid size-6 shrink-0 place-items-center rounded-full text-xs font-bold tabular-nums ${medal ? medal.chip : "bg-sand text-muted"}`}>{rank}</span>
+      <RankAvatar name={c.fullName} avatar={c.avatar} className="size-10 text-xs" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold">
+          {c.fullName}
+          {c.userId === selfId ? " (bạn)" : ""}
+        </p>
+        <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
+          <span className={`rounded-full px-2 py-0.5 font-semibold ${chip.cls}`}>{chip.text}</span>
+          {c.offsite ? <span className="rounded-full bg-sand px-2 py-0.5 text-muted">Ngoài điểm</span> : null}
+          {c.lastType === "out" ? <span className="rounded-full bg-sand px-2 py-0.5 text-muted">Đã ra ca</span> : null}
+        </p>
+      </div>
+      <p className="font-display text-2xl leading-none font-bold tabular-nums">{vnTime(c.firstInAt)}</p>
+    </li>
+  );
+}
+
+/** Danh sách những người đã chấm công hôm nay: top 5 người vào sớm nhất, bấm "Xem tất cả" để xem đủ. */
+function TodayPunchers({ selfId, lateFrom, refreshKey }: { selfId: string; lateFrom: number; refreshKey: number }) {
+  const [top, setTop] = useState<TodayCheckins | null>(null);
+  const [all, setAll] = useState<TodayCheckins | null>(null);
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    getTodayCheckins({ data: { all: false } })
+      .then((r) => !cancelled && setTop(r))
+      .catch((err) => !cancelled && setError(errorText(err)));
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
+  function openAll() {
+    setOpen(true);
+    setAll(null);
+    getTodayCheckins({ data: { all: true } })
+      .then(setAll)
+      .catch((err) => setError(errorText(err)));
+  }
+
+  const punched = top?.punched ?? 0;
+  const total = top?.total ?? 0;
+  return (
+    <section className="mx-5 mt-1 mb-6 md:mx-8" aria-label="Những người đã chấm công hôm nay">
+      <div className="flex items-end justify-between gap-3 pb-2">
+        <div>
+          <h2 className="font-display text-xl font-bold">Hôm nay đã chấm công</h2>
+          <p className="text-xs text-muted">{top ? `${punched}/${total} người đã vào ca · xếp theo giờ vào` : "Đang tải…"}</p>
+        </div>
+        {top && punched > 5 ? (
+          <button type="button" className="shrink-0 text-sm font-semibold text-ice" onClick={openAll}>
+            Xem tất cả ({punched})
+          </button>
+        ) : null}
+      </div>
+      {top && total > 0 ? (
+        <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-sand">
+          <div className="h-full rounded-full bg-ice" style={{ width: `${Math.min(100, Math.round((punched / total) * 100))}%` }} />
+        </div>
+      ) : null}
+      {error ? <p className="text-sm text-clay">{error}</p> : null}
+      {top && top.people.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-line bg-card px-4 py-5 text-center text-sm text-muted">Chưa có ai chấm công. Hãy là người đầu tiên hôm nay!</p>
+      ) : null}
+      {top && top.people.length > 0 ? (
+        <ol className="divide-y divide-line overflow-hidden rounded-xl border border-edge bg-card">
+          {top.people.map((c, i) => (
+            <CheckinRow key={c.userId} c={c} rank={i + 1} selfId={selfId} lateFrom={lateFrom} />
+          ))}
+        </ol>
+      ) : null}
+      {top && punched > 5 ? (
+        <button type="button" className={`${secondaryBtn} mt-3 h-11 w-full`} onClick={openAll}>
+          Xem tất cả {punched} người
+        </button>
+      ) : null}
+
+      {open ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" onPointerDown={(e) => e.target === e.currentTarget && setOpen(false)}>
+          <div className="theme-night flex max-h-[85dvh] w-full max-w-md flex-col rounded-t-2xl border border-edge bg-paper md:max-w-xl">
+            <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
+              <div>
+                <h3 className="font-display text-xl font-bold">Đã chấm công hôm nay</h3>
+                <p className="text-xs text-muted">{punched}/{total} người đã vào ca · xếp theo giờ vào</p>
+              </div>
+              <button type="button" aria-label="Đóng" className="grid size-9 place-items-center rounded-md border border-edge bg-card text-lg" onClick={() => setOpen(false)}>
+                ×
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {!all ? <p className="px-4 py-6 text-sm text-muted">Đang tải…</p> : null}
+              {all ? (
+                <ol className="divide-y divide-line">
+                  {all.people.map((c, i) => (
+                    <CheckinRow key={c.userId} c={c} rank={i + 1} selfId={selfId} lateFrom={lateFrom} />
+                  ))}
+                </ol>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }
 

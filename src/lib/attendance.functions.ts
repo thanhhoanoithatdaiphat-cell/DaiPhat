@@ -18,6 +18,7 @@ import type {
   PunchResult,
   PunchRow,
   RankLists,
+  TodayCheckins,
   Role,
   Settings,
   WorkspaceData,
@@ -1742,6 +1743,68 @@ export const adminResetPassword = createServerFn({ method: "POST" })
     await ac.internalAdapter.deleteUserSessions(data.userId);
     await sql`update profiles set must_change_password = true where user_id = ${data.userId}`;
     return { password };
+  });
+
+/** Danh sách người đã chấm vào ca hôm nay, xếp theo giờ vào sớm nhất. Mọi nhân viên đều xem được. */
+export const getTodayCheckins = createServerFn({ method: "POST" })
+  .validator((input: { all?: boolean }) => ({ all: input?.all === true }))
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }): Promise<TodayCheckins> => {
+    const profile = await requireProfile(context.userId);
+    const sql = await getSql();
+    const dayStart = `${vnDateKey()}T00:00:00+07:00`;
+    const dayEnd = new Date(new Date(dayStart).getTime() + 24 * 60 * 60 * 1000).toISOString();
+    const rows = await sql<{
+      user_id: string;
+      full_name: string;
+      department: string | null;
+      first_in: unknown;
+      late_minutes: number | null;
+      offsite: boolean | null;
+      last_type: "in" | "out" | null;
+    }>`
+      select p.user_id, p.full_name, p.department, f.punched_at as first_in, f.late_minutes, f.offsite, l.type as last_type
+      from profiles p
+      join lateral (
+        select punched_at, late_minutes, offsite from attendances
+        where user_id = p.user_id and type = 'in' and status in ('valid', 'corrected')
+          and punched_at >= ${dayStart}::timestamptz and punched_at < ${dayEnd}::timestamptz
+        order by punched_at asc limit 1
+      ) f on true
+      left join lateral (
+        select type from attendances
+        where user_id = p.user_id and status in ('valid', 'corrected')
+          and punched_at >= ${dayStart}::timestamptz and punched_at < ${dayEnd}::timestamptz
+        order by punched_at desc limit 1
+      ) l on true
+      where p.company_id = ${profile.companyId} and p.is_active = true
+      order by f.punched_at asc
+    `;
+    const counted = await sql<{ n: number }>`select count(*)::int as n from profiles where company_id = ${profile.companyId} and is_active = true`;
+    const shown = data.all ? rows : rows.slice(0, 5);
+    const avatars = new Map<string, string | null>();
+    if (shown.length) {
+      const ids = shown.map((r) => r.user_id);
+      const found = await sql.query<{ user_id: string; avatar_data: string | null }>(
+        `select user_id, avatar_data from profiles where user_id in (${ids.map((_, i) => `$${i + 1}`).join(",")})`,
+        ids,
+      );
+      for (const a of found) avatars.set(a.user_id, a.avatar_data);
+    }
+    return {
+      punched: rows.length,
+      total: Number(counted[0]?.n ?? rows.length),
+      people: shown.map((r) => ({
+        userId: r.user_id,
+        fullName: r.full_name,
+        department: r.department,
+        avatar: avatars.get(r.user_id) ?? null,
+        firstInAt: stamp(r.first_in),
+        lateMinutes: Number(r.late_minutes ?? 0),
+        offsite: Boolean(r.offsite),
+        lastType: r.last_type === "out" ? "out" : "in",
+      })),
+    };
   });
 
 /** Quản trị cho phép nhân viên đổi sang máy khác: gỡ máy đang gắn, máy kế tiếp mở app sẽ được gắn thay. */

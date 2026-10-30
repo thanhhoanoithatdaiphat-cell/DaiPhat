@@ -1,4 +1,4 @@
-import { getRequest } from "@tanstack/react-start/server";
+import { getRequest, setCookie } from "@tanstack/react-start/server";
 import { getSql } from "@/lib/db";
 import { DEVICE_BLOCKED_MESSAGE } from "@/lib/device-shared";
 
@@ -8,6 +8,21 @@ export function deviceLabelFromUa(ua: string): string {
   const os = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : android ? android[1].trim() : /Android/.test(ua) ? "Android" : /Windows/.test(ua) ? "Windows" : /Macintosh/.test(ua) ? "Mac" : /Linux/.test(ua) ? "Linux" : "Máy lạ";
   const browser = /EdgA?\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /SamsungBrowser/.test(ua) ? "Samsung Internet" : /(CriOS|Chrome)\//.test(ua) ? "Chrome" : /(FxiOS|Firefox)\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : "";
   return browser ? `${os} · ${browser}` : os;
+}
+
+/** Làm mới cookie từ phía máy chủ để trình duyệt (nhất là Safari trên iPhone) không xóa sau 7 ngày. */
+function refreshCookie(request: Request, deviceId: string) {
+  try {
+    setCookie("vaoca_device", deviceId, {
+      maxAge: 63_072_000,
+      path: "/",
+      sameSite: "lax",
+      httpOnly: false,
+      secure: new URL(request.url).protocol === "https:",
+    });
+  } catch {
+    /* không bắt buộc */
+  }
 }
 
 function readDeviceCookie(request: Request): string | null {
@@ -52,6 +67,19 @@ export async function assertDeviceAllowed(profile: { userId: string; companyId: 
     }
     if (rows[0]?.device_id === deviceId) {
       await sql`update user_devices set last_seen_at = now() where user_id = ${profile.userId} and last_seen_at < now() - interval '10 minutes'`;
+      refreshCookie(request, deviceId);
+      return;
+    }
+    // Tài khoản chưa có lượt chấm công nào thì chưa có gì để gian lận: cho đổi máy tự do.
+    // (Người mới đăng ký hay mở link bằng Zalo rồi chuyển sang Chrome, hoặc cài ứng dụng sau khi đăng ký.)
+    const used = await sql<{ n: number }>`select count(*)::int as n from attendances where user_id = ${profile.userId} limit 1`;
+    if (Number(used[0]?.n ?? 0) === 0) {
+      await sql`
+        update user_devices
+        set device_id = ${deviceId}, device_label = ${label}, bound_at = now(), last_seen_at = now()
+        where user_id = ${profile.userId}
+      `;
+      refreshCookie(request, deviceId);
       return;
     }
     await sql`

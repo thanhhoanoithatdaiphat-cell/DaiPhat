@@ -396,15 +396,18 @@ export const getWorkspace = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<WorkspaceData> => {
     const profile = await loadProfile(context.userId, data);
-    await (await import("@/lib/device.server")).assertDeviceAllowed(profile);
     const sql = await getSql();
-    const companies = await sql<{ name: string; settings: unknown }>`
-      select name, settings from companies where id = ${profile.companyId}
-    `;
+    // Kiểm tra máy và đọc cài đặt công ty cùng lúc (mỗi lượt chờ mạng đến cơ sở dữ liệu là một lần chậm).
+    const [companies] = await Promise.all([
+      sql<{ name: string; settings: unknown }>`
+        select name, settings from companies where id = ${profile.companyId}
+      `,
+      import("@/lib/device.server").then((m) => m.assertDeviceAllowed(profile)),
+    ]);
     const company = companies[0];
     if (!company) throw new Error("Không tìm thấy công ty");
     const settings = readSettings(company.settings);
-    const locationRows = await sql<{
+    const locationRowsP = sql<{
       id: number;
       name: string;
       lat: number;
@@ -416,12 +419,11 @@ export const getWorkspace = createServerFn({ method: "POST" })
       from locations where company_id = ${profile.companyId}
       order by is_active desc, name asc
     `;
-    const locations = locationRows.map(mapLocation);
     const todayKey = vnDateKey();
     const dayStart = `${todayKey}T00:00:00+07:00`;
     const dayEndDate = new Date(new Date(dayStart).getTime() + 24 * 60 * 60 * 1000);
     const dayEnd = dayEndDate.toISOString();
-    const todayRows = await sql<{
+    const todayRowsP = sql<{
       id: number;
       type: "in" | "out";
       punched_at: unknown;
@@ -440,7 +442,7 @@ export const getWorkspace = createServerFn({ method: "POST" })
         and punched_at < ${dayEnd}::timestamptz
       order by punched_at asc
     `;
-    const pending = await sql<{ n: number }>`
+    const pendingP = sql<{ n: number }>`
       select (
         (select count(*) from correction_requests
           where company_id = ${profile.companyId} and status = 'pending'
@@ -451,8 +453,9 @@ export const getWorkspace = createServerFn({ method: "POST" })
             and (${canReview(profile.role)} or user_id = ${profile.userId}))
       )::int as n
     `;
-    let teamToday: PersonRow[] = [];
-    if (canReview(profile.role)) {
+    const teamTodayP = (async (): Promise<PersonRow[]> => {
+    if (!canReview(profile.role)) return [];
+    {
       // Nhân viên nghỉ việc quá LEFT_VISIBLE_DAYS ngày thì không hiện trong danh sách nữa.
       const hideBefore = vnDateKey(new Date(Date.now() - LEFT_VISIBLE_DAYS * 86_400_000));
       const people = await sql<{
@@ -504,7 +507,7 @@ export const getWorkspace = createServerFn({ method: "POST" })
           and (p.is_active = true or p.ended_on is null or p.ended_on > ${hideBefore}::date)
         order by p.full_name asc
       `;
-      teamToday = people.map((p) => ({
+      return people.map((p) => ({
         userId: p.user_id,
         fullName: p.full_name,
         email: p.email,
@@ -527,8 +530,10 @@ export const getWorkspace = createServerFn({ method: "POST" })
         deviceLastBlockedLabel: p.last_blocked_label,
       }));
     }
-    let offsiteToday: PunchRow[] = [];
-    if (canReview(profile.role)) {
+    })();
+    const offsiteTodayP = (async (): Promise<PunchRow[]> => {
+    if (!canReview(profile.role)) return [];
+    {
       const alerts = await sql<{
         id: number;
         type: "in" | "out";
@@ -557,12 +562,13 @@ export const getWorkspace = createServerFn({ method: "POST" })
           and a.punched_at < ${dayEnd}::timestamptz
         order by a.punched_at desc
       `;
-      offsiteToday = alerts.map(mapPunch);
+      return alerts.map(mapPunch);
     }
-    let lateToday: PunchRow[] = [];
-    let overtimePending: PunchRow[] = [];
-    if (canReview(profile.role)) {
-      const lateRows = await sql<{
+    })();
+    const reviewP = (async (): Promise<{ lateToday: PunchRow[]; overtimePending: PunchRow[] }> => {
+    if (!canReview(profile.role)) return { lateToday: [], overtimePending: [] };
+    {
+      const lateRowsP = sql<{
         id: number;
         type: "in" | "out";
         punched_at: unknown;
@@ -591,7 +597,7 @@ export const getWorkspace = createServerFn({ method: "POST" })
           and a.punched_at < ${dayEnd}::timestamptz
         order by a.punched_at desc
       `;
-      const otRows = await sql<{
+      const otRowsP = sql<{
         id: number;
         type: "in" | "out";
         punched_at: unknown;
@@ -618,9 +624,13 @@ export const getWorkspace = createServerFn({ method: "POST" })
         order by a.punched_at desc
         limit 40
       `;
-      lateToday = lateRows.map(mapPunch);
-      overtimePending = otRows.map(mapPunch);
+      const [lateRows, otRows] = await Promise.all([lateRowsP, otRowsP]);
+      return { lateToday: lateRows.map(mapPunch), overtimePending: otRows.map(mapPunch) };
     }
+    })();
+    const [locationRows, todayRows, pending, teamToday, offsiteToday, review] = await Promise.all([locationRowsP, todayRowsP, pendingP, teamTodayP, offsiteTodayP, reviewP]);
+    const locations = locationRows.map(mapLocation);
+    const { lateToday, overtimePending } = review;
     return {
       profile,
       companyName: company.name,
@@ -796,11 +806,12 @@ export const punch = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<PunchResult> => {
     const profile = await requireProfile(context.userId);
-    await (await import("@/lib/device.server")).assertDeviceAllowed(profile);
     const sql = await getSql();
-    const companies = await sql<{ settings: unknown }>`
-      select settings from companies where id = ${profile.companyId}
-    `;
+    // Kiểm tra máy và đọc cài đặt cùng lúc: mỗi lượt chờ cơ sở dữ liệu nối đuôi nhau là một lần chậm.
+    const [companies] = await Promise.all([
+      sql<{ settings: unknown }>`select settings from companies where id = ${profile.companyId}`,
+      import("@/lib/device.server").then((m) => m.assertDeviceAllowed(profile)),
+    ]);
     const settings = readSettings(companies[0]?.settings);
     const photo = data.photo ?? "";
     if (settings.requirePhoto) {
@@ -810,27 +821,44 @@ export const punch = createServerFn({ method: "POST" })
     } else if (photo && (!photo.startsWith("data:image/jpeg;base64,") || photo.length > PHOTO_MAX)) {
       throw new Error("Ảnh không hợp lệ.");
     }
-    const recent = await sql<{ punched_at: unknown }>`
-      select punched_at from attendances
-      where user_id = ${profile.userId}
-      order by punched_at desc
-      limit 1
-    `;
+    const todayBounds = dayRange(vnDateKey());
+    const punchedAt = new Date().toISOString();
+    // Các truy vấn không phụ thuộc nhau chạy cùng lúc (trước đây chạy nối đuôi, mỗi cái chờ cái trước).
+    const [recent, lastToday, locs, isHoliday, existingIns] = await Promise.all([
+      sql<{ punched_at: unknown }>`
+        select punched_at from attendances
+        where user_id = ${profile.userId}
+        order by punched_at desc
+        limit 1
+      `,
+      sql<{ type: "in" | "out" }>`
+        select type from attendances
+        where user_id = ${profile.userId}
+          and punched_at >= ${todayBounds.start}::timestamptz
+          and punched_at < ${todayBounds.end}::timestamptz
+        order by punched_at desc
+        limit 1
+      `,
+      sql<{ name: string; lat: number; lng: number; radius_meters: number }>`
+        select name, lat, lng, radius_meters from locations
+        where company_id = ${profile.companyId} and is_active = true
+      `,
+      vnWeekday(punchedAt) === 0 ? Promise.resolve(true) : isHolidayDay(profile.companyId, vnDateKey(punchedAt)),
+      sql<{ n: number }>`
+        select count(*)::int as n from attendances
+        where user_id = ${profile.userId}
+          and type = 'in'
+          and punched_at >= ${todayBounds.start}::timestamptz
+          and punched_at < ${todayBounds.end}::timestamptz
+          and status in ('valid', 'corrected')
+      `,
+    ]);
     if (recent[0]) {
       const delta = Date.now() - new Date(stamp(recent[0].punched_at)).getTime();
       if (delta >= 0 && delta < 60_000) {
         throw new Error("Bạn vừa chấm công. Đợi khoảng một phút rồi thử lại.");
       }
     }
-    const todayBounds = dayRange(vnDateKey());
-    const lastToday = await sql<{ type: "in" | "out" }>`
-      select type from attendances
-      where user_id = ${profile.userId}
-        and punched_at >= ${todayBounds.start}::timestamptz
-        and punched_at < ${todayBounds.end}::timestamptz
-      order by punched_at desc
-      limit 1
-    `;
     const lastType = lastToday[0]?.type ?? null;
     if (data.type === "in" && lastType === "in") {
       throw new Error("Bạn đang trong ca. Hãy ra ca trước khi vào ca tiếp.");
@@ -838,15 +866,6 @@ export const punch = createServerFn({ method: "POST" })
     if (data.type === "out" && lastType !== "in") {
       throw new Error("Chưa có lần vào ca hôm nay. Hãy vào ca trước.");
     }
-    const locs = await sql<{
-      name: string;
-      lat: number;
-      lng: number;
-      radius_meters: number;
-    }>`
-      select name, lat, lng, radius_meters from locations
-      where company_id = ${profile.companyId} and is_active = true
-    `;
     if (locs.length === 0 && !settings.allowOffsite) {
       throw new Error("Chưa có điểm chấm công nào đang bật. Nhờ quản trị thêm vị trí.");
     }
@@ -872,22 +891,13 @@ export const punch = createServerFn({ method: "POST" })
         message: `Bạn đang ở ${where}, ngoài vùng chấm công. Hãy đến điểm làm việc hoặc nhờ quản trị bật "cho phép ngoài điểm".`,
       };
     }
-    const punchedAt = new Date().toISOString();
     const clock = vnMinutes(punchedAt);
     // Chủ nhật hoặc ngày lễ: cả buổi làm tính tăng ca (chờ duyệt), không tính đi muộn
-    const sunday = vnWeekday(punchedAt) === 0 || (await isHolidayDay(profile.companyId, vnDateKey(punchedAt)));
+    const sunday = isHoliday;
     let lateMinutes = 0;
     let overtimeMinutes = 0;
     let overtimeStatus: OvertimeStatus = "none";
     // Chỉ tính muộn cho lần VÀO đầu tiên trong ngày
-    const existingIns = await sql<{ n: number }>`
-      select count(*)::int as n from attendances
-      where user_id = ${profile.userId}
-        and type = 'in'
-        and punched_at >= ${todayBounds.start}::timestamptz
-        and punched_at < ${todayBounds.end}::timestamptz
-        and status in ('valid', 'corrected')
-    `;
     const isFirstIn = data.type === "in" && Number(existingIns[0]?.n ?? 0) === 0;
     if (sunday) {
       if (data.type === "out") {
@@ -914,34 +924,32 @@ export const punch = createServerFn({ method: "POST" })
       overtimeMinutes = data.type === "out" ? Math.max(0, clock - hmToMinutes(settings.workEnd)) : 0;
       overtimeStatus = overtimeMinutes >= settings.overtimeMinMinutes ? "pending" : "none";
     }
-    // Recheck ngay trước khi insert để giảm race condition (hai tab bấm cùng lúc)
-    const recheck = await sql<{ type: "in" | "out" }>`
-      select type from attendances
-      where user_id = ${profile.userId}
-        and punched_at >= ${todayBounds.start}::timestamptz
-        and punched_at < ${todayBounds.end}::timestamptz
-      order by punched_at desc
-      limit 1
-    `;
-    const reLast = recheck[0]?.type ?? null;
-    if (data.type === "in" && reLast === "in") {
-      throw new Error("Bạn đang trong ca. Hãy ra ca trước khi vào ca tiếp.");
-    }
-    if (data.type === "out" && reLast !== "in") {
-      throw new Error("Chưa có lần vào ca hôm nay. Hãy vào ca trước.");
-    }
+    // Kiểm tra lại trạng thái ngay trong câu lệnh insert (một lượt đi tới cơ sở dữ liệu thay vì hai):
+    // vào ca chỉ ghi được khi lượt cuối hôm nay là "ra" (hoặc chưa có), ra ca chỉ ghi khi lượt cuối là "vào".
+    // Hai lần bấm cùng lúc nên không thể cùng ghi hai lượt "vào".
     const inserted = await sql<{ punched_at: unknown }>`
       insert into attendances (
         user_id, company_id, type, punched_at, lat, lng, photo_data, status,
         nearest_name, distance_meters, location_source, offsite,
         late_minutes, overtime_minutes, overtime_status, address
-      ) values (
-        ${profile.userId}, ${profile.companyId}, ${data.type}, ${punchedAt}::timestamptz, ${data.lat}, ${data.lng},
-        ${photo || null}, 'valid', ${best?.name ?? null}, ${best ? distanceMeters : null},
-        ${data.locationSource}, ${offsite}, ${lateMinutes}, ${overtimeMinutes}, ${overtimeStatus}, ${address}
       )
+      select
+        ${profile.userId}::text, ${profile.companyId}::text, ${data.type}::text, ${punchedAt}::timestamptz, ${data.lat}::double precision, ${data.lng}::double precision,
+        ${photo || null}::text, 'valid', ${best?.name ?? null}::text, ${best ? distanceMeters : null}::integer,
+        ${data.locationSource}::text, ${offsite}::boolean, ${lateMinutes}::integer, ${overtimeMinutes}::integer, ${overtimeStatus}::text, ${address}::text
+      where coalesce((
+        select type from attendances
+        where user_id = ${profile.userId}
+          and punched_at >= ${todayBounds.start}::timestamptz
+          and punched_at < ${todayBounds.end}::timestamptz
+        order by punched_at desc
+        limit 1
+      ), 'out') = ${data.type === "in" ? "out" : "in"}
       returning punched_at
     `;
+    if (!inserted[0]) {
+      throw new Error(data.type === "in" ? "Bạn đang trong ca. Hãy ra ca trước khi vào ca tiếp." : "Chưa có lần vào ca hôm nay. Hãy vào ca trước.");
+    }
     return {
       ok: true,
       nearestName: best?.name ?? "",
@@ -1754,7 +1762,7 @@ export const getTodayCheckins = createServerFn({ method: "POST" })
     const sql = await getSql();
     const dayStart = `${vnDateKey()}T00:00:00+07:00`;
     const dayEnd = new Date(new Date(dayStart).getTime() + 24 * 60 * 60 * 1000).toISOString();
-    const rows = await sql<{
+    const rowsP = sql<{
       user_id: string;
       full_name: string;
       department: string | null;
@@ -1780,7 +1788,8 @@ export const getTodayCheckins = createServerFn({ method: "POST" })
       where p.company_id = ${profile.companyId} and p.is_active = true
       order by f.punched_at asc
     `;
-    const counted = await sql<{ n: number }>`select count(*)::int as n from profiles where company_id = ${profile.companyId} and is_active = true`;
+    const countedP = sql<{ n: number }>`select count(*)::int as n from profiles where company_id = ${profile.companyId} and is_active = true`;
+    const [rows, counted] = await Promise.all([rowsP, countedP]);
     const shown = data.all ? rows : rows.slice(0, 5);
     const avatars = new Map<string, string | null>();
     if (shown.length) {

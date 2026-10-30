@@ -392,7 +392,9 @@ export function PunchPanel({
       if (next.ok) setSuccess({ type, result: next, withPhoto: Boolean(photo), manual: locationSource === "manual" });
       setGeoFailed(null);
       setPendingPhoto("");
-      if (next.ok) await onChanged();
+      // Mở khóa nút và hiện thông báo thành công ngay; làm mới dữ liệu chạy nền, không bắt người dùng chờ.
+      setBusy(false);
+      if (next.ok) void onChanged().catch(() => {});
     } catch (err) {
       setError(errorText(err));
     } finally {

@@ -38,7 +38,11 @@ function readDeviceCookie(request: Request): string | null {
 export async function assertDeviceAllowed(profile: { userId: string; companyId: string; role: string }): Promise<void> {
   if (profile.role === "admin") return;
   const sql = await getSql();
-  const company = await sql<{ settings: unknown }>`select settings from companies where id = ${profile.companyId}`;
+  // Đọc cài đặt công ty và máy đang gắn cùng lúc (một lượt đi tới cơ sở dữ liệu thay vì hai).
+  const [company, bound] = await Promise.all([
+    sql<{ settings: unknown }>`select settings from companies where id = ${profile.companyId}`,
+    sql<{ device_id: string }>`select device_id from user_devices where user_id = ${profile.userId}`.catch(() => [] as { device_id: string }[]),
+  ]);
   let raw = company[0]?.settings;
   if (typeof raw === "string") {
     try {
@@ -56,7 +60,7 @@ export async function assertDeviceAllowed(profile: { userId: string; companyId: 
   const label = deviceLabelFromUa(request.headers.get("user-agent") ?? "");
 
   try {
-    let rows = await sql<{ device_id: string }>`select device_id from user_devices where user_id = ${profile.userId}`;
+    let rows = bound;
     if (!rows[0]) {
       await sql`
         insert into user_devices (user_id, device_id, device_label)
@@ -66,7 +70,8 @@ export async function assertDeviceAllowed(profile: { userId: string; companyId: 
       rows = await sql<{ device_id: string }>`select device_id from user_devices where user_id = ${profile.userId}`;
     }
     if (rows[0]?.device_id === deviceId) {
-      await sql`update user_devices set last_seen_at = now() where user_id = ${profile.userId} and last_seen_at < now() - interval '10 minutes'`;
+      // Ghi dấu lần dùng gần nhất chạy nền, không bắt người dùng chờ.
+      void sql`update user_devices set last_seen_at = now() where user_id = ${profile.userId} and last_seen_at < now() - interval '10 minutes'`.catch(() => {});
       refreshCookie(request, deviceId);
       return;
     }

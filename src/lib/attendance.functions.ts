@@ -54,6 +54,7 @@ const DEFAULT_SETTINGS: Settings = {
   rankingsEnabled: false,
   requirePhoto: true,
   allowOffsite: false,
+  deviceLock: true,
 };
 
 type ProfileDb = {
@@ -119,6 +120,7 @@ function readSettings(raw: unknown): Settings {
     rankingsEnabled: obj.rankingsEnabled === true,
     requirePhoto: obj.requirePhoto !== false,
     allowOffsite: obj.allowOffsite === true,
+    deviceLock: obj.deviceLock !== false,
   };
 }
 
@@ -393,6 +395,7 @@ export const getWorkspace = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<WorkspaceData> => {
     const profile = await loadProfile(context.userId, data);
+    await (await import("@/lib/device.server")).assertDeviceAllowed(profile);
     const sql = await getSql();
     const companies = await sql<{ name: string; settings: unknown }>`
       select name, settings from companies where id = ${profile.companyId}
@@ -467,11 +470,18 @@ export const getWorkspace = createServerFn({ method: "POST" })
         started_on: unknown;
         ended_on: unknown;
         is_active: boolean;
+        device_label: string | null;
+        bound_at: unknown;
+        blocked_count: number | null;
+        last_blocked_at: unknown;
+        last_blocked_label: string | null;
       }>`
         select p.user_id, p.full_name, p.email, p.phone, p.role, a.type, a.punched_at,
                f.punched_at as first_in_at, f.late_minutes as first_in_late,
-               p.employee_code, p.department, p.job_title, p.started_on, p.ended_on, p.is_active
+               p.employee_code, p.department, p.job_title, p.started_on, p.ended_on, p.is_active,
+               d.device_label, d.bound_at, d.blocked_count, d.last_blocked_at, d.last_blocked_label
         from profiles p
+        left join user_devices d on d.user_id = p.user_id
         left join lateral (
           select type, punched_at from attendances
           where user_id = p.user_id
@@ -509,6 +519,11 @@ export const getWorkspace = createServerFn({ method: "POST" })
         startedOn: p.started_on ? dateOnly(p.started_on) : null,
         endedOn: p.ended_on ? dateOnly(p.ended_on) : null,
         isActive: Boolean(p.is_active),
+        deviceLabel: p.device_label,
+        deviceBoundAt: p.bound_at ? stamp(p.bound_at) : null,
+        deviceBlockedCount: Number(p.blocked_count ?? 0),
+        deviceLastBlockedAt: p.last_blocked_at ? stamp(p.last_blocked_at) : null,
+        deviceLastBlockedLabel: p.last_blocked_label,
       }));
     }
     let offsiteToday: PunchRow[] = [];
@@ -780,6 +795,7 @@ export const punch = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ context, data }): Promise<PunchResult> => {
     const profile = await requireProfile(context.userId);
+    await (await import("@/lib/device.server")).assertDeviceAllowed(profile);
     const sql = await getSql();
     const companies = await sql<{ settings: unknown }>`
       select settings from companies where id = ${profile.companyId}
@@ -1038,6 +1054,7 @@ export const createCorrection = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
     const profile = await requireProfile(context.userId);
+    await (await import("@/lib/device.server")).assertDeviceAllowed(profile);
     await assertMonthOpen(profile.companyId, data.attendanceDate);
     const sql = await getSql();
     const companies = await sql<{ settings: unknown }>`
@@ -1727,11 +1744,32 @@ export const adminResetPassword = createServerFn({ method: "POST" })
     return { password };
   });
 
+/** Quản trị cho phép nhân viên đổi sang máy khác: gỡ máy đang gắn, máy kế tiếp mở app sẽ được gắn thay. */
+export const adminResetDevice = createServerFn({ method: "POST" })
+  .validator((input: { userId: string }) => {
+    if (!input.userId || input.userId.length > 80) throw new Error("Người dùng không hợp lệ");
+    return { userId: input.userId };
+  })
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) => {
+    const profile = await requireProfile(context.userId);
+    if (profile.role !== "admin") throw new Error("Chỉ quản trị được cho phép đổi máy");
+    const sql = await getSql();
+    await sql`
+      delete from user_devices
+      where user_id = ${data.userId}
+        and user_id in (select user_id from profiles where company_id = ${profile.companyId})
+    `;
+    return { ok: true };
+  });
+
 /** Có phải đăng nhập lần đầu bằng mật khẩu do quản trị cấp, cần đặt mật khẩu riêng không. */
 export const needsPasswordChange = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }): Promise<{ needed: boolean }> => {
     try {
+      const profile = await requireProfile(context.userId);
+      await (await import("@/lib/device.server")).assertDeviceAllowed(profile);
       const sql = await getSql();
       const rows = await sql<{ must: boolean }>`select must_change_password as must from profiles where user_id = ${context.userId}`;
       return { needed: rows[0]?.must === true };
@@ -1750,6 +1788,8 @@ export const changeMyPassword = createServerFn({ method: "POST" })
   })
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
+    const profile = await requireProfile(context.userId);
+    await (await import("@/lib/device.server")).assertDeviceAllowed(profile);
     const sql = await getSql();
     const { auth } = await import("@/lib/auth/server");
     const ac = await auth.$context;
@@ -2203,6 +2243,7 @@ export const createLeaveRequest = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
     const profile = await requireProfile(context.userId);
+    await (await import("@/lib/device.server")).assertDeviceAllowed(profile);
     await assertMonthOpen(profile.companyId, data.leaveDate);
     const sql = await getSql();
     const dup = await sql<{ id: number }>`
@@ -2273,6 +2314,7 @@ export const createOvertimeRequest = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
     const profile = await requireProfile(context.userId);
+    await (await import("@/lib/device.server")).assertDeviceAllowed(profile);
     const sql = await getSql();
     const companies = await sql<{ settings: unknown }>`select settings from companies where id = ${profile.companyId}`;
     const settings = readSettings(companies[0]?.settings);

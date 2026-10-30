@@ -153,7 +153,7 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
                           <div className="flex items-center gap-3">
                             <span className="grid size-9 shrink-0 place-items-center rounded-md bg-sand font-display text-lg font-semibold">{p.fullName.charAt(0).toUpperCase()}</span>
                             <div className="min-w-0">
-                              <p className="truncate font-medium">{p.fullName}{p.userId === data.profile.userId ? " (bạn)" : ""}</p>
+                              <p className="truncate font-medium">{p.fullName}{p.userId === data.profile.userId ? " (bạn)" : ""}{p.deviceBlockedCount ? <span className="ml-2 rounded-sm bg-clay px-1.5 py-0.5 align-middle text-[10px] font-bold text-card" title={`Đã có ${p.deviceBlockedCount} lần mở từ máy lạ`}>Máy lạ</span> : null}</p>
                               <p className="text-xs text-muted">{phoneOf(p)}</p>
                             </div>
                           </div>

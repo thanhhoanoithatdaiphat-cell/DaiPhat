@@ -27,6 +27,8 @@ export type Settings = {
   rankingsEnabled: boolean;
   requirePhoto: boolean;
   allowOffsite: boolean;
+  /** Mỗi tài khoản (trừ quản trị) chỉ dùng được trên một máy. */
+  deviceLock: boolean;
 };
 
 export type LocationRow = {
@@ -128,6 +130,12 @@ export type PersonRow = {
   startedOn?: string | null;
   endedOn?: string | null;
   isActive?: boolean;
+  /** Máy đang được gắn với tài khoản (chỉ quản trị nhận được). */
+  deviceLabel?: string | null;
+  deviceBoundAt?: string | null;
+  deviceBlockedCount?: number;
+  deviceLastBlockedAt?: string | null;
+  deviceLastBlockedLabel?: string | null;
 };
 
 export type ProfileRow = {

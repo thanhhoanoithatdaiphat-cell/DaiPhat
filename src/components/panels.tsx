@@ -30,6 +30,7 @@ import {
   saveCompany,
   saveLocation,
   setRole,
+  adminResetDevice,
   adminResetPassword,
   adminUpdateProfile,
   updateProfile,
@@ -2164,6 +2165,10 @@ export function SettingsForm({ data, onChanged }: { data: WorkspaceData; onChang
         />
         Cho phép chấm ngoài điểm
       </label>
+      <label className="flex items-center gap-3 text-sm">
+        <input type="checkbox" checked={settings.deviceLock} onChange={(e) => setSettings({ ...settings, deviceLock: e.target.checked })} />
+        Mỗi tài khoản chỉ dùng trên một máy (chống chấm hộ)
+      </label>
       {error ? <p className="text-sm text-clay">{error}</p> : null}
       {saved ? <p className="text-sm text-ok">Đã lưu cài đặt.</p> : null}
       <button className={primaryBtn} type="submit">Lưu cài đặt</button>
@@ -2308,6 +2313,17 @@ export function PersonCard({
     }
   }
 
+  async function resetDevice() {
+    if (!window.confirm(`Cho phép ${person.fullName} đổi sang máy khác? Máy đầu tiên mở app sau đó sẽ được gắn với tài khoản.`)) return;
+    setError("");
+    try {
+      await adminResetDevice({ data: { userId: person.userId } });
+      await onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }
+
   async function resetPin() {
     if (!window.confirm(`Cấp mật khẩu mới cho ${person.fullName}? Mật khẩu cũ sẽ không dùng được nữa.`)) return;
     setError("");
@@ -2368,6 +2384,25 @@ export function PersonCard({
         <option value="approver">Người duyệt</option>
         <option value="admin">Quản trị</option>
       </select>
+      {canReset && person.role !== "admin" ? (
+        <div className="mt-2 rounded-md bg-sand px-3 py-2 text-sm">
+          <p className="font-medium">
+            Máy: {person.deviceLabel ? person.deviceLabel : "chưa gắn máy"}
+            {person.deviceBoundAt ? ` · từ ${person.deviceBoundAt.slice(0, 10).split("-").reverse().join("/")}` : ""}
+          </p>
+          {person.deviceBlockedCount ? (
+            <p className="text-clay">
+              Có {person.deviceBlockedCount} lần mở từ máy lạ{person.deviceLastBlockedLabel ? ` (${person.deviceLastBlockedLabel})` : ""}
+              {person.deviceLastBlockedAt ? `, gần nhất ${person.deviceLastBlockedAt.slice(0, 10).split("-").reverse().join("/")}` : ""}.
+            </p>
+          ) : null}
+          {person.deviceLabel ? (
+            <button type="button" className="mt-1 text-ink underline" onClick={() => void resetDevice()}>
+              Cho phép đổi máy
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {canReset && person.userId !== selfId ? (
         newPin ? (
           <div className="mt-2 rounded-md bg-ok/15 px-3 py-2 text-sm">

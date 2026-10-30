@@ -196,6 +196,23 @@ async function withSchemaGuard(sql: Sql): Promise<Sql> {
         end if;
       end $$
     `;
+    // Giống hệt migrations/0017_user_devices.sql
+    await sql`
+      do $$ begin
+        if to_regclass('profiles') is not null then
+          create table if not exists user_devices (
+            user_id text primary key references profiles (user_id) on delete cascade,
+            device_id text not null,
+            device_label text not null default '',
+            bound_at timestamptz not null default now(),
+            last_seen_at timestamptz not null default now(),
+            blocked_count integer not null default 0,
+            last_blocked_at timestamptz,
+            last_blocked_label text
+          );
+        end if;
+      end $$
+    `;
     // Giống hệt migrations/0016_must_change_password.sql
     await sql`
       do $$ begin

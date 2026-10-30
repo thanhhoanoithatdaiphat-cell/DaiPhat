@@ -4,6 +4,8 @@ import { UserButton } from "@/lib/auth/gates";
 import type { AppUser } from "@/lib/auth/use-current-user";
 import { getWorkspace, needsPasswordChange } from "@/lib/attendance.functions";
 import { FirstLoginPassword } from "@/components/change-password";
+import { DEVICE_BLOCKED_MESSAGE, ensureDeviceId } from "@/lib/device-shared";
+import { Smartphone } from "lucide-react";
 import type { WorkspaceData } from "@/lib/attendance-types";
 import { HistoryPanel, ManagePanel, ProfilePanel, PunchPanel, RankPanel, RequestsPanel } from "@/components/panels";
 import { errorText } from "@/components/ui";
@@ -24,6 +26,7 @@ export function Workspace({ user }: { user: AppUser }) {
   const [error, setError] = useState("");
   const [tab, setTab] = useState<Tab>("punch");
   const [askPassword, setAskPassword] = useState(false);
+  const [blocked, setBlocked] = useState(false);
 
   useEffect(() => {
     needsPasswordChange()
@@ -32,6 +35,7 @@ export function Workspace({ user }: { user: AppUser }) {
   }, []);
 
   const load = useCallback(async () => {
+    ensureDeviceId();
     const next = await getWorkspace({
       data: { displayName: user.displayName ?? "", email: user.primaryEmail ?? "" },
     });
@@ -41,6 +45,7 @@ export function Workspace({ user }: { user: AppUser }) {
 
   useEffect(() => {
     let cancelled = false;
+    ensureDeviceId();
     getWorkspace({
       data: { displayName: user.displayName ?? "", email: user.primaryEmail ?? "" },
     })
@@ -48,7 +53,9 @@ export function Workspace({ user }: { user: AppUser }) {
         if (!cancelled) setData(next);
       })
       .catch((err) => {
-        if (!cancelled) setError(errorText(err));
+        if (cancelled) return;
+        if (errorText(err) === DEVICE_BLOCKED_MESSAGE) setBlocked(true);
+        else setError(errorText(err));
       });
     return () => {
       cancelled = true;
@@ -86,8 +93,18 @@ export function Workspace({ user }: { user: AppUser }) {
           </header>
         )}
         <main className="min-h-0 flex-1 overflow-y-auto">
+          {blocked ? (
+            <div className="mx-4 mt-8 space-y-3 rounded-2xl border border-edge bg-card p-6 text-center">
+              <Smartphone className="mx-auto size-10 text-ice" aria-hidden />
+              <h2 className="font-display text-2xl font-semibold">Tài khoản đang dùng ở máy khác</h2>
+              <p className="text-sm text-muted">Mỗi tài khoản chỉ dùng được trên một điện thoại để tránh chấm công hộ. Nếu bạn vừa đổi điện thoại, hãy nhờ quản trị bấm "Cho phép đổi máy" cho bạn, rồi mở lại ứng dụng trên máy mới.</p>
+              <button type="button" className="h-12 w-full rounded-md border border-edge bg-paper text-sm font-semibold" onClick={() => window.location.reload()}>
+                Thử lại
+              </button>
+            </div>
+          ) : null}
           {error ? <p className="px-4 pt-4 text-sm text-clay">{error}</p> : null}
-          {!data && !error ? <p className="px-5 pt-8 text-sm text-muted">Đang mở bảng công…</p> : null}
+          {!data && !error && !blocked ? <p className="px-5 pt-8 text-sm text-muted">Đang mở bảng công…</p> : null}
           {data && punching ? <PunchPanel data={data} onChanged={load} onGoRequests={() => setTab("requests")} onGoHistory={() => setTab("history")} /> : null}
           {data && tab === "history" ? (
             <div className="px-4 py-4">

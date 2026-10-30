@@ -62,10 +62,10 @@ test("công: đủ giờ = 1, nửa ngày = 0.5, quá ít = 0, đang làm hôm n
   assert.equal(live.cong, null);
 });
 
-test("công: thiếu giờ ra ở quá khứ là 0; vắng là 0; nghỉ phép không có công; lễ ngày thường hưởng 1 công", () => {
+test("công: thiếu giờ ra ở quá khứ là 0; vắng là 0; nghỉ phép không có công; nghỉ lễ không tính công", () => {
   assert.equal(cell("2026-10-12", [p("in", "2026-10-12T01:00:00Z")]).cong, 0);
   assert.equal(cell("2026-10-12", []).cong, 0);
-  assert.equal(cell("2026-10-12", [], { isHoliday: true }).cong, 1);
+  assert.equal(cell("2026-10-12", [], { isHoliday: true }).cong, 0);
   assert.equal(cell("2026-10-12", [], { hasApprovedLeave: true, leaveKind: "om" }).label, "Ố");
 });
 
@@ -77,7 +77,7 @@ test("công: ngưỡng tùy chỉnh và tổng hợp theo tháng", () => {
   const holiday = cell("2026-10-14", [], { isHoliday: true, todayKey: "2026-10-30" });
   const leave = cell("2026-10-15", [], { hasApprovedLeave: true, todayKey: "2026-10-30" });
   const s = summarize([c, full, holiday, leave]);
-  assert.equal(s.cong, 2.5); // 0.5 + 1 + 1 công lễ hưởng nguyên lương
+  assert.equal(s.cong, 1.5); // 0.5 + 1; nghỉ lễ không tính công
   assert.equal(s.holiday, 1);
   assert.equal(s.leave, 1);
 });

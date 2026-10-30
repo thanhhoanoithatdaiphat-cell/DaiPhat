@@ -238,18 +238,27 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
       {!grid ? (
         <p className="py-10 text-sm text-muted">Đang tải bảng công…</p>
       ) : (
-        <div className="max-h-[70dvh] overflow-auto rounded-xl border border-edge bg-card">
-          <table className="border-separate border-spacing-0 text-sm">
+        <div className="max-h-[75dvh] overflow-y-auto overflow-x-auto rounded-xl border border-edge bg-card">
+          <table className="w-full min-w-[56rem] table-fixed border-separate border-spacing-0 text-sm">
+            <colgroup>
+              <col style={{ width: "10.5rem" }} />
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <col key={i} style={{ width: i === 5 ? "3.25rem" : "2.5rem" }} />
+              ))}
+              {days.map((d) => (
+                <col key={d} />
+              ))}
+            </colgroup>
             <thead>
               <tr>
-                <th className="sticky top-0 left-0 z-20 min-w-44 border-b-2 border-ink bg-card px-3 py-2 text-left font-semibold">Nhân viên</th>
+                <th className="sticky top-0 left-0 z-20 border-b-2 border-ink bg-card px-3 py-2 text-left font-semibold">Nhân viên</th>
                 {["Công", "Muộn", "Vắng", "Thiếu", "Nghỉ", "TC"].map((h) => (
-                  <th key={h} className="sticky top-0 z-10 border-b-2 border-ink bg-card px-2 py-2 text-center text-xs font-semibold text-muted">
+                  <th key={h} className="sticky top-0 z-10 border-b-2 border-ink bg-card px-0 py-2 text-center text-[11px] font-semibold text-muted">
                     {h}
                   </th>
                 ))}
                 {days.map((d) => (
-                  <th key={d} className={`sticky top-0 z-10 border-b-2 border-ink px-0.5 py-1 text-center font-display text-sm font-semibold ${weekdayOf(d) === 0 ? "bg-sand" : "bg-card"} ${d === grid.todayKey ? "text-clay" : ""}`}>
+                  <th key={d} className={`sticky top-0 z-10 border-b-2 border-ink px-0 py-1 text-center font-display text-xs font-semibold ${weekdayOf(d) === 0 ? "bg-sand" : "bg-card"} ${d === grid.todayKey ? "text-clay" : ""}`}>
                     <span className="block text-[10px] font-normal text-muted">{WEEKDAY[weekdayOf(d)]}</span>
                     {Number(d.slice(8))}
                   </th>
@@ -259,7 +268,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
             <tbody>
               {rows.map(({ person, cells, sum }) => (
                 <tr key={person.userId} className="group">
-                  <th className="sticky left-0 z-10 max-w-52 truncate border-b border-line bg-card px-3 py-1.5 text-left font-medium group-hover:bg-paper">
+                  <th className="sticky left-0 z-10 overflow-hidden border-b border-line bg-card px-2 py-1.5 text-left font-medium group-hover:bg-paper">
                     <button type="button" className="flex w-full items-center gap-2 text-left" onClick={() => setPersonId(person.userId)}>
                       <span className="grid size-8 shrink-0 place-items-center rounded-md bg-sand font-display text-base font-semibold">{person.fullName.charAt(0).toUpperCase()}</span>
                       <span className="min-w-0">
@@ -273,16 +282,16 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
                   <Num v={sum.absent} bad />
                   <Num v={sum.partial} bad />
                   <Num v={sum.leave + sum.holiday} />
-                  <td className="border-b border-line px-2 text-center font-display text-base tabular-nums">{sum.overtimeMinutes ? minutesToHm(sum.overtimeMinutes) : "–"}</td>
+                  <td className="border-b border-line px-0 text-center font-display text-xs tabular-nums">{sum.overtimeMinutes ? minutesToHm(sum.overtimeMinutes) : "–"}</td>
                   {cells.map((c, i) => (
-                    <td key={days[i]} className="border-b border-line p-0.5">
+                    <td key={days[i]} className="border-b border-line p-px">
                       <button
                         type="button"
                         onClick={() => setSel({ userId: person.userId, dateKey: days[i] })}
                         title={`${person.fullName} · ${KIND_TEXT[c.kind]}${c.cong != null ? ` · ${c.cong} công` : ""}${c.workedMinutes ? ` · làm ${minutesToHm(c.workedMinutes)}` : ""}`}
-                        className={`relative h-9 w-11 rounded-sm border font-display text-sm font-semibold tabular-nums ${CELL_CLASS[c.kind]}`}
+                        className={`relative h-10 w-full min-w-0 rounded-sm border px-0 font-display text-xs leading-none font-semibold tabular-nums ${CELL_CLASS[c.kind]}`}
                       >
-                        {cellText(c, show)}
+                        <CellLabel text={cellText(c, show)} />
                         {c.offsite ? <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-clay ring-1 ring-card" /> : null}
                         {c.overtimeStatus === "approved" ? <span className="absolute right-1 bottom-0.5 left-1 h-0.5 bg-ink" /> : null}
                       </button>
@@ -455,6 +464,18 @@ function Empty() {
   return <p className="text-sm text-muted">Không có.</p>;
 }
 
+/** Giờ vào hiển thị xếp dọc (giờ trên, phút dưới) để ô hẹp vẫn đọc được, không phải kéo thanh trượt. */
+function CellLabel({ text }: { text: string }) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(text);
+  if (!m) return <>{text}</>;
+  return (
+    <span className="flex flex-col items-center leading-[1.1]">
+      <span>{Number(m[1])}</span>
+      <span className="text-[10px] font-medium opacity-80">{m[2]}</span>
+    </span>
+  );
+}
+
 function cellText(c: DayCell, show: "cong" | "gio"): string {
   if (show === "gio" || c.kind === "off" || c.kind === "future" || c.kind === "absent") return c.label;
   if (c.kind === "partial") return "!";
@@ -479,7 +500,7 @@ function DayChips({ cell }: { cell: DayCell }) {
 
 function Num({ v, warn, bad, strong }: { v: number; warn?: boolean; bad?: boolean; strong?: boolean }) {
   const cls = v > 0 && bad ? "text-clay" : v > 0 && warn ? "text-ink" : "text-ink";
-  return <td className={`border-b border-line px-2 text-center font-display text-base tabular-nums ${cls} ${strong ? "font-bold" : ""} ${v === 0 ? "opacity-40" : ""}`}>{fmtCong(v)}</td>;
+  return <td className={`border-b border-line px-0 text-center font-display text-sm tabular-nums ${cls} ${strong ? "font-bold" : ""} ${v === 0 ? "opacity-40" : ""}`}>{fmtCong(v)}</td>;
 }
 
 function Legend({ full, half }: { full: number; half: number }) {
@@ -503,7 +524,7 @@ function Legend({ full, half }: { full: number; half: number }) {
       <li className="flex items-center gap-1.5">
         <span className="h-0.5 w-4 bg-ink" /> Có tăng ca đã duyệt
       </li>
-      <li>V vắng · ! thiếu giờ ra · P phép · Ố ốm · T thai sản · L lễ (nghỉ lễ ngày thường vẫn tính 1 công)</li>
+      <li>V vắng · ! thiếu giờ ra · P phép · Ố ốm · T thai sản · L lễ (nghỉ lễ không tính công)</li>
       <li>Làm Chủ nhật/lễ chỉ tính công khi tăng ca được duyệt, rồi nhân hệ số</li>
       <li>
         1 công từ {minutesToHm(full)} làm · 0.5 công từ {minutesToHm(half)}

@@ -2148,7 +2148,7 @@ export function SettingsForm({ data, onChanged }: { data: WorkspaceData; onChang
           <input className={fieldClass} type="number" min={1} max={5} step={0.1} value={settings.holidayRate} onChange={(e) => setSettings({ ...settings, holidayRate: Number(e.target.value) })} />
         </label>
       </div>
-      <p className="text-xs text-muted">Công chuẩn tính theo tháng trừ Chủ nhật (mặc định 26). Làm Chủ nhật hoặc lễ phải được duyệt tăng ca, rồi nhân hệ số. Nghỉ lễ ngày thường vẫn tính 1 công.</p>
+      <p className="text-xs text-muted">Công chuẩn tính theo tháng trừ Chủ nhật (mặc định 26). Làm Chủ nhật hoặc lễ phải được duyệt tăng ca, rồi nhân hệ số. Nghỉ lễ không tính công.</p>
       <label className="flex items-center gap-3 text-sm">
         <input type="checkbox" checked={settings.rankingsEnabled} onChange={(e) => setSettings({ ...settings, rankingsEnabled: e.target.checked })} />
         Bật bảng xếp hạng tháng

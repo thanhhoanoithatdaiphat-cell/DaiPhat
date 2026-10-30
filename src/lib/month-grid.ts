@@ -172,8 +172,8 @@ export function buildCell(input: {
     if (weekdayOf(dateKey) === 0) return { ...base, kind: "off", label: "" };
     if (startedOn && dateKey < startedOn) return { ...base, kind: "off", label: "" };
     if (input.endedOn && dateKey > input.endedOn) return { ...base, kind: "off", label: "" };
-    // Nghỉ lễ được hưởng nguyên lương: tính 1 công nếu rơi vào thứ 2–thứ 7 (Chủ nhật đã nằm ngoài công chuẩn).
-    if (input.isHoliday) return { ...base, cong: 1, kind: "off", label: "L" };
+    // Công ty không trả công ngày lễ: nghỉ lễ không có công (đi làm ngày lễ thì phải được duyệt tăng ca, nhân hệ số).
+    if (input.isHoliday) return { ...base, cong: 0, kind: "off", label: "L" };
     if (input.hasApprovedLeave) return { ...base, kind: "off", label: input.leaveKind === "om" ? "Ố" : input.leaveKind === "thaisan" ? "T" : "P" };
     if (dateKey === todayKey) return { ...base, kind: "future", label: "" };
     return { ...base, cong: 0, kind: "absent", label: "V" };

@@ -68,6 +68,8 @@ export default defineConfig(({ command, isPreview }) => ({
       ? [
           nitro({
             preset: "vercel",
+            // Chạy hàm ở Singapore, gần Supabase (ap-southeast-1) và người dùng ở Việt Nam.
+            vercel: { functions: { regions: ["sin1"] } },
           }),
         ]
       : []),

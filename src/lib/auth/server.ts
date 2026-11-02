@@ -8,7 +8,7 @@ import { createAuthMiddleware } from "better-auth/api";
 import { phoneNumber } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { randomBytes } from "node:crypto";
-import { Pool } from "pg";
+import { getSharedPool } from "../pg-pool";
 import { ensureDbReady, getPglite, getSql } from "../db";
 import { normalizeVnPhone, phoneFromLoginEmail } from "../phone";
 import { assertInviteAllowed } from "./invite.server";
@@ -62,7 +62,7 @@ if (!databaseUrl && process.env.NODE_ENV === "production") {
   throw new Error("Thiếu DATABASE_URL. Hãy đặt chuỗi kết nối Neon trên Vercel.");
 }
 const database = databaseUrl
-  ? new Pool({ connectionString: databaseUrl, max: 5 })
+  ? getSharedPool(databaseUrl)
   : { dialect: pgliteDialect(() => getPglite()), type: "postgres" as const };
 
 export const auth = betterAuth({

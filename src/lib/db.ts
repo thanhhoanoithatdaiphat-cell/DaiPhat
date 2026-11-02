@@ -86,13 +86,14 @@ function toSql(run: Run): Sql {
 
 function createNeonSql(): Promise<Sql> {
   globalRef.__pgSqlPromise__ ??= (async () => {
-    // Regular Postgres driver: node-postgres (`pg`) — works directly with Neon's
-    // pooled endpoint. One pool per process; warm serverless instances reuse it.
-    const { Pool, types } = await import("pg");
+    // Regular Postgres driver: node-postgres (`pg`). Một pool dùng chung với phần đăng nhập
+    // (xem pg-pool.ts) để không vượt giới hạn kết nối của bộ gom.
+    const { types } = await import("pg");
+    const { getSharedPool } = await import("./pg-pool");
     types.setTypeParser(OID_INT8, Number);
     types.setTypeParser(OID_DATE, identity);
     types.setTypeParser(OID_INTERVAL, identity);
-    const pool = new Pool({ connectionString: databaseUrl });
+    const pool = getSharedPool(databaseUrl as string);
     return toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
       return res.rows as T[];

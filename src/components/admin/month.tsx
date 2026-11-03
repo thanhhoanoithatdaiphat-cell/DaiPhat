@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { downloadXlsx } from "@/lib/xlsx-lite";
 import { timesheetSheets } from "@/lib/timesheet-xlsx";
-import { AlertTriangle, ChevronLeft, ChevronRight, Download, Lock, LockOpen, Search, X } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Download, Lock, LockOpen, Search, X } from "lucide-react";
 import { errorText } from "@/components/ui";
 import { exportTimesheet, getMonthGrid, lockMonth } from "@/lib/attendance.functions";
 import { scheduleOf, type MonthGrid } from "@/lib/attendance-types";
 import { buildCell, monthDayKeys, summarize, weekdayOf, type CellKind, type DayCell } from "@/lib/month-grid";
 import { formatMeters, formatMonthLabel, formatVnDay, minutesToHm, shiftMonth, vnDateKey, vnMonthKey, vnTime } from "@/lib/vn-time";
+import { tableSheet, viDate } from "@/lib/timesheet-xlsx";
+import { DayList, addDays, buildDayItems, dayTitle, matchesDayFilter, type DayFilter } from "./day";
 import type { AdminCtx } from "./app";
 import { compareByCode } from "@/lib/employee-order";
 import { Chip, PageHero, PunchPhoto, useClickAway } from "./common";
@@ -40,6 +42,9 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
   const [query, setQuery] = useState("");
   const [dept, setDept] = useState("");
   const [show, setShow] = useState<"cong" | "gio">("cong");
+  const [mode, setMode] = useState<"month" | "day">("month");
+  const [day, setDay] = useState(vnDateKey());
+  const [dayFilter, setDayFilter] = useState<DayFilter>("all");
   const [sel, setSel] = useState<{ userId: string; dateKey: string } | null>(null);
   const [personId, setPersonId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -65,6 +70,30 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  /** Chuyển sang ngày khác; nếu sang tháng khác thì tải tháng đó. */
+  const goDay = useCallback((d: string) => {
+    setDay(d);
+    setMonth(d.slice(0, 7));
+  }, []);
+  const openDay = useCallback(
+    (d: string) => {
+      goDay(d);
+      setMode("day");
+    },
+    [goDay],
+  );
+  useEffect(() => {
+    if (mode !== "day") return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (sel || (t && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName))) return;
+      if (e.key === "ArrowLeft") goDay(addDays(day, -1));
+      if (e.key === "ArrowRight" && day < vnDateKey()) goDay(addDays(day, 1));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mode, day, sel, goDay]);
 
   const dayPanelRef = useRef<HTMLElement>(null);
   useClickAway(dayPanelRef, () => setSel(null), sel !== null);
@@ -103,6 +132,9 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
   }, [all, query, dept]);
   const depts = useMemo(() => [...new Set((grid?.people ?? []).map((p) => p.department ?? "").filter(Boolean))].sort((a, b) => a.localeCompare(b, "vi")), [grid]);
 
+  const dayItems = useMemo(() => (grid ? buildDayItems(rows, grid, days, day, data.settings.lunchStart) : []), [rows, grid, days, day, data.settings.lunchStart]);
+  const dayShown = useMemo(() => dayItems.filter((it) => matchesDayFilter(it, dayFilter)), [dayItems, dayFilter]);
+
   const issues = useMemo(() => {
     const partial = all.reduce((n, r) => n + r.sum.partial, 0);
     const pendingReq =
@@ -113,7 +145,41 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
   }, [all, corrections, leaves, data.overtimePending, month]);
   const totalCong = rows.reduce((n, r) => n + r.sum.congQuyDoi, 0);
 
+  function downloadDay() {
+    const header = ["STT", "Mã NV", "Nhân viên", "Phòng ban", "Trạng thái", "Giờ vào", "Giờ ra", "Giờ làm", "Công", "Phút muộn", "Tăng ca", "Ngoài vùng", "Theo đơn", "Ca chiều"];
+    const lines = dayShown.map((it, i) => [
+      String(i + 1),
+      it.person.employeeCode ?? "",
+      it.person.fullName,
+      it.person.department ?? "",
+      it.label,
+      it.cell.firstIn ? vnTime(it.cell.firstIn) : "",
+      it.cell.lastOut ? vnTime(it.cell.lastOut) : "",
+      it.cell.workedMinutes ? minutesToHm(it.cell.workedMinutes) : "",
+      it.cell.cong == null ? "" : fmtCong(it.cell.cong),
+      String(it.cell.lateMinutes || ""),
+      it.cell.overtimeMinutes ? minutesToHm(it.cell.overtimeMinutes) : "",
+      it.cell.offsite ? "Có" : "",
+      it.cell.corrected ? "Có" : "",
+      it.afternoon ? "Có" : "",
+    ]);
+    downloadXlsx(`cham-cong-ngay-${day}.xlsx`, [
+      tableSheet({
+        name: "Theo ngày",
+        title: `CHẤM CÔNG NGÀY ${viDate(day)} – ${dayTitle(day).split(",")[0].toUpperCase()}`,
+        subtitle: `${dayShown.length} nhân viên · Xuất ngày ${new Date().toLocaleDateString("vi-VN")}`,
+        header,
+        rows: lines,
+        numeric: [0, 8, 9],
+      }),
+    ]);
+  }
+
   async function download() {
+    if (mode === "day") {
+      downloadDay();
+      return;
+    }
     setBusy(true);
     try {
       const file = await exportTimesheet({ data: month });
@@ -149,11 +215,36 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
       <PageHero
         title="Bảng công"
         subtitle={
-          grid
+          mode === "day"
+            ? grid
+              ? `${dayTitle(day)} · ${dayItems.length} nhân viên · ${dayItems.filter((i) => i.cell.firstIn).length} đã chấm vào · ${dayItems.filter((i) => i.state === "late").length} đi muộn · ${dayItems.filter((i) => i.state === "partial").length} thiếu giờ · ${dayItems.filter((i) => i.state === "absent").length} vắng`
+              : "Đang tải…"
+            : grid
             ? `${rows.length} nhân viên · tổng ${fmtCong(totalCong)} công quy đổi · công chuẩn ${data.settings.standardDays} (trừ Chủ nhật) · Chủ nhật ×${data.settings.sundayRate} · lễ ×${data.settings.holidayRate}`
             : "Đang tải…"
         }
         actions={
+          mode === "day" ? (
+            <div className="flex flex-wrap items-center gap-1">
+              <button type="button" aria-label="Ngày trước" className="grid size-10 place-items-center rounded-lg bg-white/10 hover:bg-white/20" onClick={() => goDay(addDays(day, -1))}>
+                <ChevronLeft className="size-5" />
+              </button>
+              <input
+                type="date"
+                aria-label="Chọn ngày"
+                value={day}
+                max={vnDateKey()}
+                onChange={(e) => e.target.value && goDay(e.target.value)}
+                className="h-10 rounded-lg bg-white/10 px-3 text-center font-display text-lg font-bold text-[#fff3d6] [color-scheme:dark]"
+              />
+              <button type="button" aria-label="Ngày sau" disabled={day >= vnDateKey()} className="grid size-10 place-items-center rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30" onClick={() => goDay(addDays(day, 1))}>
+                <ChevronRight className="size-5" />
+              </button>
+              <button type="button" disabled={day === vnDateKey()} className="ml-1 h-10 rounded-lg bg-white/10 px-3 text-sm font-semibold hover:bg-white/20 disabled:opacity-30" onClick={() => goDay(vnDateKey())}>
+                Hôm nay
+              </button>
+            </div>
+          ) : (
           <div className="flex items-center gap-1">
             <button type="button" aria-label="Tháng trước" className="grid size-10 place-items-center rounded-lg bg-white/10 hover:bg-white/20" onClick={() => setMonth((m) => shiftMonth(m, -1))}>
               <ChevronLeft className="size-5" />
@@ -163,6 +254,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
               <ChevronRight className="size-5" />
             </button>
           </div>
+          )
         }
       />
 
@@ -179,6 +271,15 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
             ))}
           </select>
         ) : null}
+        <div className="flex overflow-hidden rounded-md border border-edge text-sm font-semibold" role="group" aria-label="Chế độ xem">
+          <button type="button" aria-pressed={mode === "month"} onClick={() => setMode("month")} className={`h-9 px-3 ${mode === "month" ? "bg-night text-ice" : "bg-card"}`}>
+            Cả tháng
+          </button>
+          <button type="button" aria-pressed={mode === "day"} onClick={() => setMode("day")} className={`flex h-9 items-center gap-1.5 px-3 ${mode === "day" ? "bg-night text-ice" : "bg-card"}`}>
+            <CalendarDays className="size-4" /> Theo ngày
+          </button>
+        </div>
+        {mode === "month" ? (
         <div className="flex overflow-hidden rounded-md border border-edge text-sm font-semibold" role="group" aria-label="Kiểu hiển thị ô">
           {(["cong", "gio"] as const).map((k) => (
             <button key={k} type="button" aria-pressed={show === k} onClick={() => setShow(k)} className={`h-9 px-3 ${show === k ? "bg-night text-ice" : "bg-card"}`}>
@@ -186,6 +287,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
             </button>
           ))}
         </div>
+        ) : null}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {grid?.lock ? (
             <>
@@ -219,7 +321,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
       </div>
 
       {error ? <p className="text-sm text-clay">{error}</p> : null}
-      {grid && !grid.lock && (issues.partial > 0 || issues.pendingReq > 0) ? (
+      {mode === "month" && grid && !grid.lock && (issues.partial > 0 || issues.pendingReq > 0) ? (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border-[1.5px] border-clay bg-clay/10 px-4 py-3 text-sm">
           <AlertTriangle className="size-5 shrink-0 text-clay" />
           <p className="min-w-0 flex-1">
@@ -233,10 +335,12 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
           ) : null}
         </div>
       ) : null}
-      <Legend full={data.settings.fullDayMinutes} half={data.settings.halfDayMinutes} />
+      {mode === "month" ? <Legend full={data.settings.fullDayMinutes} half={data.settings.halfDayMinutes} /> : null}
 
       {!grid ? (
         <p className="py-10 text-sm text-muted">Đang tải bảng công…</p>
+      ) : mode === "day" ? (
+        <DayList day={day} items={dayItems} filter={dayFilter} onFilter={setDayFilter} onOpen={(userId) => setSel({ userId, dateKey: day })} selectedId={sel?.userId ?? null} />
       ) : (
         <div className="max-h-[75dvh] overflow-y-auto overflow-x-auto rounded-xl border border-edge bg-card">
           <table className="w-full min-w-[56rem] table-fixed border-separate border-spacing-0 text-sm">
@@ -258,7 +362,12 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
                   </th>
                 ))}
                 {days.map((d) => (
-                  <th key={d} className={`sticky top-0 z-10 border-b-2 border-ink px-0 py-1 text-center font-display text-xs font-semibold ${weekdayOf(d) === 0 ? "bg-sand" : "bg-card"} ${d === grid.todayKey ? "text-clay" : ""}`}>
+                  <th
+                    key={d}
+                    title="Xem giờ vào ra của mọi người trong ngày này"
+                    onClick={() => openDay(d)}
+                    className={`sticky top-0 z-10 cursor-pointer border-b-2 border-ink px-0 py-1 text-center font-display text-xs font-semibold hover:bg-ice ${weekdayOf(d) === 0 ? "bg-sand" : "bg-card"} ${d === grid.todayKey ? "text-clay" : ""}`}
+                  >
                     <span className="block text-[10px] font-normal text-muted">{WEEKDAY[weekdayOf(d)]}</span>
                     {Number(d.slice(8))}
                   </th>

@@ -88,6 +88,15 @@ function clampRate(value: unknown, fallback: number): number {
   return Math.round(Math.min(5, Math.max(1, n)) * 100) / 100;
 }
 
+/**
+ * Giờ chuẩn vào ca của một lượt vào, tính theo phút.
+ * Công ty duyệt nghỉ ngoài app nên không tra đơn nghỉ: lần vào đầu tiên từ giờ nghỉ trưa (11:30) trở đi
+ * được hiểu là nghỉ buổi sáng, vào ca chiều, mốc là giờ hết nghỉ trưa (13:30). Còn lại mốc là giờ vào ca buổi sáng (07:30).
+ */
+function shiftStartMinutes(settings: Settings, clock: number): number {
+  return clock >= hmToMinutes(settings.lunchStart) ? hmToMinutes(settings.lunchEnd) : hmToMinutes(settings.workStart);
+}
+
 async function isHolidayDay(companyId: string, dayKey: string): Promise<boolean> {
   const sql = await getSql();
   const rows = await sql<{ n: number }>`
@@ -947,7 +956,8 @@ export const punch = createServerFn({ method: "POST" })
       }
     } else {
       if (isFirstIn) {
-        lateMinutes = Math.max(0, clock - hmToMinutes(settings.workStart));
+        const shiftStart = shiftStartMinutes(settings, clock);
+        lateMinutes = Math.max(0, clock - shiftStart);
       }
       overtimeMinutes = data.type === "out" ? Math.max(0, clock - hmToMinutes(settings.workEnd)) : 0;
       overtimeStatus = overtimeMinutes >= settings.overtimeMinMinutes ? "pending" : "none";
@@ -1199,7 +1209,8 @@ export const reviewCorrection = createServerFn({ method: "POST" })
         `;
         const isEarliest = !existing[0] || new Date(punchedAt).getTime() <= new Date(stamp(existing[0].punched_at)).getTime();
         if (isEarliest) {
-          lateMinutes = Math.max(0, clock - hmToMinutes(settings.workStart));
+          const shiftStart = shiftStartMinutes(settings, clock);
+          lateMinutes = Math.max(0, clock - shiftStart);
         }
       }
       if (!sunday && row.punch_type === "out") {
@@ -1245,8 +1256,9 @@ export const listRankings = createServerFn({ method: "POST" })
       full_name: string;
       type: "in" | "out";
       punched_at: unknown;
+      late_minutes: number | null;
     }>`
-      select a.user_id, p.full_name, a.type, a.punched_at
+      select a.user_id, p.full_name, a.type, a.punched_at, a.late_minutes
       from attendances a
       join profiles p on p.user_id = a.user_id
       where a.company_id = ${profile.companyId}
@@ -1257,12 +1269,15 @@ export const listRankings = createServerFn({ method: "POST" })
         and a.offsite = false
       order by a.punched_at asc
     `;
-    const byUser = new Map<string, { userId: string; fullName: string; days: Map<string, string> }>();
+    const byUser = new Map<string, { userId: string; fullName: string; days: Map<string, string>; late: Map<string, number> }>();
     for (const row of rows) {
       const at = stamp(row.punched_at);
       const day = vnDateKey(at);
-      const bucket = byUser.get(row.user_id) ?? { userId: row.user_id, fullName: row.full_name, days: new Map() };
-      if (!bucket.days.has(day)) bucket.days.set(day, at);
+      const bucket = byUser.get(row.user_id) ?? { userId: row.user_id, fullName: row.full_name, days: new Map(), late: new Map() };
+      if (!bucket.days.has(day)) {
+        bucket.days.set(day, at);
+        bucket.late.set(day, Number(row.late_minutes ?? 0));
+      }
       byUser.set(row.user_id, bucket);
     }
     const consistent: RankLists["consistent"] = [];
@@ -1270,10 +1285,8 @@ export const listRankings = createServerFn({ method: "POST" })
     for (const bucket of byUser.values()) {
       const times = [...bucket.days.values()];
       if (times.length === 0) continue;
-      const onTime = times.filter((t) => {
-        const late = Math.max(0, vnMinutes(t) - hmToMinutes(settings.workStart));
-        return late < settings.lateMinutes;
-      }).length;
+      // Dùng số phút muộn đã lưu lúc chấm (đã tính đúng cả ngày nghỉ sáng, vào ca chiều)
+      const onTime = [...bucket.late.values()].filter((late) => late < settings.lateMinutes).length;
       consistent.push({
         userId: bucket.userId,
         avatar: null,

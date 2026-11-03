@@ -60,6 +60,12 @@ export default defineConfig(({ command, isPreview }) => ({
     strictPort: true,
   },
   resolve: { tsconfigPaths: true },
+  build: {
+    // Mặc định của Vite chỉ chạy trên Safari/iOS 16.4 trở lên. Hạ xuống để iPhone đời cũ (iOS 12+) vẫn mở được app.
+    // Mã được chuyển về cú pháp cũ khi dựng; các hàm trình duyệt thiếu được bù ở src/lib/polyfills.ts.
+    target: ["es2018", "safari12", "chrome64", "firefox62", "edge79"],
+    cssTarget: ["safari12", "chrome64", "firefox62", "edge79"],
+  },
   plugins: [
     pgliteBootstrapPlugin(),
     tailwindcss(),

@@ -196,6 +196,19 @@ function haversine(lat1: number, lng1: number, lat2: number, lng2: number): numb
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+const ONE_PAIR_HINT = "Mỗi ngày chỉ chấm một lần vào và một lần ra. Nếu bấm nhầm, hãy gửi đơn sửa công.";
+
+/** Lượt thứ hai đến cùng lúc bị chỉ mục duy nhất ở cơ sở dữ liệu từ chối: đổi thành thông báo dễ hiểu. */
+function rethrowPunchConflict(type: "in" | "out") {
+  return (err: unknown): never => {
+    const e = err as { code?: string; message?: string } | null;
+    if (e?.code === "23505" || /duplicate key|unique constraint/i.test(e?.message ?? "")) {
+      throw new Error(`Hôm nay bạn đã ${type === "in" ? "vào" : "ra"} ca rồi. ${ONE_PAIR_HINT}`);
+    }
+    throw err;
+  };
+}
+
 async function assertMonthOpen(companyId: string, dateKey: string) {
   const sql = await getSql();
   const rows = await sql<{ month: string }>`
@@ -824,7 +837,7 @@ export const punch = createServerFn({ method: "POST" })
     const todayBounds = dayRange(vnDateKey());
     const punchedAt = new Date().toISOString();
     // Các truy vấn không phụ thuộc nhau chạy cùng lúc (trước đây chạy nối đuôi, mỗi cái chờ cái trước).
-    const [recent, lastToday, locs, isHoliday, existingIns] = await Promise.all([
+    const [recent, lastToday, locs, isHoliday, existingIns, existingOuts] = await Promise.all([
       sql<{ punched_at: unknown }>`
         select punched_at from attendances
         where user_id = ${profile.userId}
@@ -852,6 +865,14 @@ export const punch = createServerFn({ method: "POST" })
           and punched_at < ${todayBounds.end}::timestamptz
           and status in ('valid', 'corrected')
       `,
+      sql<{ n: number }>`
+        select count(*)::int as n from attendances
+        where user_id = ${profile.userId}
+          and type = 'out'
+          and punched_at >= ${todayBounds.start}::timestamptz
+          and punched_at < ${todayBounds.end}::timestamptz
+          and status in ('valid', 'corrected')
+      `,
     ]);
     if (recent[0]) {
       const delta = Date.now() - new Date(stamp(recent[0].punched_at)).getTime();
@@ -860,11 +881,18 @@ export const punch = createServerFn({ method: "POST" })
       }
     }
     const lastType = lastToday[0]?.type ?? null;
+    // Mỗi ngày đúng một lượt vào và một lượt ra.
+    if (data.type === "out" && Number(existingOuts[0]?.n ?? 0) > 0) {
+      throw new Error(`Hôm nay bạn đã ra ca rồi. ${ONE_PAIR_HINT}`);
+    }
     if (data.type === "in" && lastType === "in") {
       throw new Error("Bạn đang trong ca. Hãy ra ca trước khi vào ca tiếp.");
     }
     if (data.type === "out" && lastType !== "in") {
       throw new Error("Chưa có lần vào ca hôm nay. Hãy vào ca trước.");
+    }
+    if (data.type === "in" && Number(existingIns[0]?.n ?? 0) > 0) {
+      throw new Error(`Hôm nay bạn đã vào ca rồi. ${ONE_PAIR_HINT}`);
     }
     if (locs.length === 0 && !settings.allowOffsite) {
       throw new Error("Chưa có điểm chấm công nào đang bật. Nhờ quản trị thêm vị trí.");
@@ -937,18 +965,28 @@ export const punch = createServerFn({ method: "POST" })
         ${profile.userId}::text, ${profile.companyId}::text, ${data.type}::text, ${punchedAt}::timestamptz, ${data.lat}::double precision, ${data.lng}::double precision,
         ${photo || null}::text, 'valid', ${best?.name ?? null}::text, ${best ? distanceMeters : null}::integer,
         ${data.locationSource}::text, ${offsite}::boolean, ${lateMinutes}::integer, ${overtimeMinutes}::integer, ${overtimeStatus}::text, ${address}::text
-      where coalesce((
-        select type from attendances
+      where not exists (
+        select 1 from attendances
         where user_id = ${profile.userId}
+          and type = ${data.type}::text
           and punched_at >= ${todayBounds.start}::timestamptz
           and punched_at < ${todayBounds.end}::timestamptz
-        order by punched_at desc
-        limit 1
-      ), 'out') = ${data.type === "in" ? "out" : "in"}
+      )
+      and (${data.type}::text = 'in' or exists (
+        select 1 from attendances
+        where user_id = ${profile.userId}
+          and type = 'in'
+          and punched_at >= ${todayBounds.start}::timestamptz
+          and punched_at < ${todayBounds.end}::timestamptz
+      ))
       returning punched_at
-    `;
+    `.catch(rethrowPunchConflict(data.type));
     if (!inserted[0]) {
-      throw new Error(data.type === "in" ? "Bạn đang trong ca. Hãy ra ca trước khi vào ca tiếp." : "Chưa có lần vào ca hôm nay. Hãy vào ca trước.");
+      throw new Error(
+        data.type === "in"
+          ? `Hôm nay bạn đã vào ca rồi. ${ONE_PAIR_HINT}`
+          : `Chưa có lần vào ca hôm nay, hoặc bạn đã ra ca rồi. ${ONE_PAIR_HINT}`,
+      );
     }
     return {
       ok: true,

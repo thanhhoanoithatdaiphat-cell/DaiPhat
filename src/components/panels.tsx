@@ -312,6 +312,8 @@ export function PunchPanel({
   const last = data.today[data.today.length - 1];
   const clock = useClock();
   const primary: "in" | "out" = last?.type === "in" ? "out" : "in";
+  // Mỗi ngày chỉ một lượt vào và một lượt ra: đủ cả hai thì khóa nút, tránh bấm nhầm.
+  const dayDone = data.today.some((row) => row.type === "in") && data.today.some((row) => row.type === "out");
   const geo = useGeoWatch();
   const [summary, setSummary] = useState<MySummary | null>(null);
   useEffect(() => {
@@ -516,9 +518,9 @@ export function PunchPanel({
       <div className="punch-zone flex min-h-0 flex-1 flex-col items-center justify-center px-5">
         <button
           type="button"
-          disabled={busy || (!data.settings.allowOffsite && active.length === 0)}
+          disabled={busy || dayDone || (!data.settings.allowOffsite && active.length === 0)}
           onClick={() => locateFirst(primary)}
-          aria-label={busy ? "Đang ghi" : primary === "in" ? "Vào ca" : "Ra ca"}
+          aria-label={busy ? "Đang ghi" : dayDone ? "Đã chấm đủ vào và ra hôm nay" : primary === "in" ? "Vào ca" : "Ra ca"}
           className="punch-float disabled:opacity-40"
         >
           <span className="punch-halo" aria-hidden="true" />
@@ -528,8 +530,11 @@ export function PunchPanel({
           </span>
         </button>
         <p className="mt-[clamp(0.75rem,2.4dvh,1.25rem)] text-center font-display text-xl font-bold tracking-wide text-ice md:text-2xl">
-          {busy ? "ĐANG GHI…" : primary === "in" ? "CHẠM ĐỂ VÀO CA" : "CHẠM ĐỂ RA CA"}
+          {busy ? "ĐANG GHI…" : dayDone ? "ĐÃ CHẤM ĐỦ HÔM NAY" : primary === "in" ? "CHẠM ĐỂ VÀO CA" : "CHẠM ĐỂ RA CA"}
         </p>
+        {dayDone ? (
+          <p className="mt-1 text-center text-xs text-muted">Bấm nhầm giờ? Vào mục Đơn để gửi đơn sửa công.</p>
+        ) : null}
         {active.length === 0 && !data.settings.allowOffsite ? (
           <p className="mt-2 text-center text-sm text-clay">Chưa có điểm chấm công đang bật.</p>
         ) : null}

@@ -1031,7 +1031,7 @@ function PunchLine({ row, settings }: { row: PunchRow; settings: Settings }) {
           Xem ảnh
         </button>
       ) : null}
-      {photo ? <img src={photo} alt="Ảnh chấm công" className="mt-3 max-h-64 w-full rounded-md object-cover" /> : null}
+      {photo ? <img src={photo} alt="Ảnh chấm công" className="mt-3 h-auto w-full rounded-md" /> : null}
     </article>
   );
 }
@@ -2111,7 +2111,7 @@ function ApprovalCard({ data, onChanged }: { data: WorkspaceData; onChanged: () 
                 {photoFor === row.id ? "Ẩn ảnh" : "Xem ảnh"}
               </button>
             ) : null}
-            {photoFor === row.id && photo ? <img src={photo} alt="Ảnh chấm công" className="mt-2 max-h-56 w-full rounded-lg object-cover" /> : null}
+            {photoFor === row.id && photo ? <img src={photo} alt="Ảnh chấm công" className="mt-2 h-auto w-full rounded-lg" /> : null}
           </li>
         ))}
       </ul>

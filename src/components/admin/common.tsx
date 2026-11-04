@@ -84,7 +84,7 @@ export function PunchPhoto({ id }: { id: number }) {
     );
   }
   if (!photo) return <p className="text-sm text-muted">Không có ảnh</p>;
-  return <img src={photo} alt="Ảnh chấm công" className="max-h-72 w-full rounded-md object-cover" />;
+  return <img src={photo} alt="Ảnh chấm công" className="h-auto w-full rounded-md" />;
 }
 
 /** Banner tối đầu mỗi trang quản trị: tiêu đề, dòng phụ, nút thao tác và (tuỳ chọn) hàng số liệu. */

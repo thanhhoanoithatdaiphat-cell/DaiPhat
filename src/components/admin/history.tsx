@@ -417,7 +417,7 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex overflow-hidden rounded-md border border-edge text-sm font-semibold" role="tablist" aria-label="Kiểu xem lịch sử">
           {([["day", "Theo ngày"], ["punch", "Từng lượt chấm"], ["audit", "Nhật ký duyệt"]] as const).map(([k, t]) => (
-            <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => switchTab(k)} className={`h-10 px-4 ${tab === k ? "bg-night text-ice" : "bg-card"}`}>
+            <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => switchTab(k)} className={`h-10 px-4 ${tab === k ? "bg-ice text-night" : "bg-card"}`}>
               {t}
             </button>
           ))}
@@ -538,7 +538,7 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
       ) : null}
 
       {detail && detailPerson ? (
-        <aside ref={detailRef} className="fixed inset-y-0 right-0 z-30 w-full overflow-y-auto border-l-2 border-ink bg-card p-5 shadow-2xl sm:w-[26rem]" aria-label="Chi tiết ngày">
+        <aside ref={detailRef} className="fixed inset-y-0 right-0 z-30 w-full overflow-y-auto border-l border-edge bg-card p-5 shadow-2xl sm:w-[26rem]" aria-label="Chi tiết ngày">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="font-display text-3xl font-semibold">{detailPerson.fullName}</p>
@@ -564,7 +564,7 @@ export function HistoryView({ ctx }: { ctx: AdminCtx }) {
           ) : (
             <ul className="mt-5 space-y-4">
               {detailPunches.map((p) => (
-                <li key={p.id} className="space-y-2 border-l-4 border-ink pl-3">
+                <li key={p.id} className="space-y-2 border-l-4 border-ice pl-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-display text-4xl leading-none font-semibold tabular-nums">{vnTime(p.at)}</span>
                     <Chip tone={p.type === "in" ? "ok" : "ink"}>{p.type === "in" ? "VÀO" : "RA"}</Chip>
@@ -629,7 +629,7 @@ function Table({ head, empty, children }: { head: string[]; empty: boolean; chil
         <thead>
           <tr>
             {head.map((h, i) => (
-              <th key={`${h}${i}`} className="sticky top-0 z-10 border-b-2 border-ink bg-card px-3 py-2 text-left text-xs font-semibold text-muted">{h}</th>
+              <th key={`${h}${i}`} className="sticky top-0 z-10 border-b border-edge bg-card px-3 py-2 text-left text-xs font-semibold text-muted">{h}</th>
             ))}
           </tr>
         </thead>

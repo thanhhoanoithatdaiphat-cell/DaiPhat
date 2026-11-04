@@ -70,8 +70,8 @@ export function ChangePasswordForm({ onDone, onSkip, skipLabel = "Để sau" }: 
 export function FirstLoginPassword({ onClose }: { onClose: () => void }) {
   const [done, setDone] = useState(false);
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Đặt mật khẩu mới">
-      <div className="w-full max-w-sm space-y-3 rounded-2xl border border-edge bg-card p-5 shadow-2xl">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-scrim p-4" role="dialog" aria-modal="true" aria-label="Đặt mật khẩu mới">
+      <div className="w-full max-w-sm space-y-3 rounded-2xl border border-edge bg-card p-4 shadow-2xl">
         {done ? (
           <>
             <h2 className="font-display text-2xl font-semibold">Đã đổi mật khẩu</h2>

@@ -29,8 +29,8 @@ export function Landing() {
     <div className="theme-dark tech-stage flex min-h-dvh justify-center text-ink">
       <div className="flex w-full max-w-md flex-col">
         <header className="safe-top relative overflow-hidden hero-dark px-6 pb-12 text-ink">
-          <div className="flex items-center gap-3"><img src="/punch-logo.png" alt="Đại Phát Furniture" className="size-14 rounded-full" /><p className="text-sm font-semibold text-ice">Vào Ca · Đại Phát</p></div>
-          <h1 className="font-display mt-8 text-[5.25rem] leading-[0.88] font-bold tracking-tight">
+          <div className="flex items-center gap-3"><img src="/punch-logo.png" alt="Đại Phát Furniture" className="size-14 rounded-full" /><p className="text-sm font-semibold text-amber">Vào Ca · Đại Phát</p></div>
+          <h1 className="font-display mt-8 text-[4.25rem] leading-[0.88] font-bold tracking-tight">
             Đúng chỗ
             <br />
             mới là

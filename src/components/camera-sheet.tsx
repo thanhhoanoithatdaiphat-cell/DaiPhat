@@ -95,23 +95,23 @@ export function CameraSheet({
   }
 
   return (
-    <div className="fixed inset-0 z-30 flex flex-col bg-ink text-card">
+    <div className="fixed inset-0 z-30 flex flex-col bg-paper text-ink">
       <div className="flex items-center justify-between px-4 py-3">
         <p className="text-sm font-medium">Chụp khuôn mặt tại nơi làm việc</p>
-        <button type="button" onClick={() => setFacing(f => f === "user" ? "environment" : "user")} className="rounded-full bg-card/10 px-3 py-2 text-xs font-medium">
+        <button type="button" onClick={() => setFacing(f => f === "user" ? "environment" : "user")} className="rounded-full bg-sand px-3 py-2 text-xs font-medium">
           {facing === "user" ? "Camera sau" : "Camera trước"}
         </button>
-        <button type="button" className="grid size-11 place-items-center rounded-full bg-card/10" onClick={onClose} aria-label="Đóng camera">
+        <button type="button" className="grid size-11 place-items-center rounded-full bg-sand" onClick={onClose} aria-label="Đóng camera">
           <X className="size-5" />
         </button>
       </div>
-      <div className="relative mx-4 flex-1 overflow-hidden rounded-2xl bg-pine-deep">
+      <div className="relative mx-4 flex-1 overflow-hidden rounded-2xl border border-line bg-sand">
         <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
       </div>
-      {error ? <p className="px-4 pt-3 text-sm text-sand">{error}</p> : null}
+      {error ? <p className="px-4 pt-3 text-sm text-clay">{error}</p> : null}
       <div className="flex justify-center px-4 py-5">
-        <button type="button" onClick={shoot} className="grid size-16 place-items-center rounded-full border border-card/40" aria-label="Chụp ảnh">
-          <span className="size-12 rounded-full bg-card" />
+        <button type="button" onClick={shoot} className="grid size-16 place-items-center rounded-full border-2 border-amber/50" aria-label="Chụp ảnh">
+          <span className="size-12 rounded-full bg-ice" />
         </button>
       </div>
     </div>

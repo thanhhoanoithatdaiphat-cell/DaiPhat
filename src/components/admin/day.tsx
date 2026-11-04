@@ -124,7 +124,7 @@ function fmtCong(n: number): string {
 }
 
 function Th({ children, className = "" }: { children?: ReactNode; className?: string }) {
-  return <th className={`sticky top-0 z-10 border-b-2 border-ink bg-card px-3 py-2 text-left text-[11px] font-semibold whitespace-nowrap text-muted ${className}`}>{children}</th>;
+  return <th className={`sticky top-0 z-10 border-b border-edge bg-card px-3 py-2 text-left text-[11px] font-semibold whitespace-nowrap text-muted ${className}`}>{children}</th>;
 }
 
 function Td({ children, mono, className = "" }: { children?: ReactNode; mono?: boolean; className?: string }) {
@@ -161,7 +161,7 @@ export function DayList({
               aria-pressed={filter === k}
               onClick={() => onFilter(k)}
               className={`flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm font-semibold ${
-                filter === k ? "border-night bg-night text-ice" : `border-edge bg-card ${n === 0 ? "opacity-50" : ""} ${bad ? "text-clay" : ""}`
+                filter === k ? "border-amber/50 bg-ice text-night" : `border-edge bg-card ${n === 0 ? "opacity-50" : ""} ${bad ? "text-clay" : ""}`
               }`}
             >
               {t}

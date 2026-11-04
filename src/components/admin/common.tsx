@@ -46,7 +46,7 @@ export function shortDate(dateKey: string): string {
 
 export function Chip({ tone, children }: { tone: "ink" | "ok" | "late" | "clay" | "muted"; children: ReactNode }) {
   const cls = {
-    ink: "bg-ink text-card",
+    ink: "bg-sand text-ink ring-1 ring-edge",
     ok: "bg-ok/15 text-ok",
     late: "bg-ice text-ink",
     clay: "bg-clay text-card",
@@ -100,11 +100,11 @@ export function PageHero({
   children?: ReactNode;
 }) {
   return (
-    <section className="rounded-2xl bg-night p-5 text-[#fff3d6] lg:p-6">
+    <section className="rounded-xl border border-line bg-card p-3.5 text-ink lg:p-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 className="font-display text-3xl leading-tight font-bold lg:text-4xl">{title}</h1>
-          {subtitle ? <p className="mt-0.5 text-xs text-ice">{subtitle}</p> : null}
+          {subtitle ? <p className="mt-0.5 text-xs text-amber">{subtitle}</p> : null}
         </div>
         {actions ? <div className="flex flex-wrap items-center gap-3">{actions}</div> : null}
       </div>

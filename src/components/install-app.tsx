@@ -42,7 +42,7 @@ export function InstallApp() {
 
   return (
     <div className="space-y-2">
-      <button type="button" onClick={() => void install()} className="flex h-12 w-full items-center justify-center gap-2 rounded-md border-2 border-ink bg-card text-base font-bold">
+      <button type="button" onClick={() => void install()} className="flex h-11 w-full items-center justify-center gap-2 rounded-md border border-edge bg-card text-base font-bold">
         <Download className="size-5" /> Cài ứng dụng vào màn hình
       </button>
       {help ? (

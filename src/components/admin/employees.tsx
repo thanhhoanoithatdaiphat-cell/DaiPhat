@@ -75,7 +75,7 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
         title="Nhân viên"
         actions={
           isAdmin ? (
-            <button type="button" className="h-10 rounded-md bg-[#fff3d6] px-4 text-sm font-bold text-night" onClick={() => { setOpenId(null); setAdding(true); }}>
+            <button type="button" className="h-10 rounded-md bg-ice px-4 text-sm font-bold text-night" onClick={() => { setOpenId(null); setAdding(true); }}>
               + Thêm nhân viên
             </button>
           ) : undefined
@@ -114,7 +114,7 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
                   ["all", "Tất cả"],
                 ] as const
               ).map(([k, t]) => (
-                <button key={k} type="button" aria-pressed={status === k} onClick={() => setStatus(k)} className={`h-9 px-3 ${status === k ? "bg-ink text-card" : "bg-card"}`}>
+                <button key={k} type="button" aria-pressed={status === k} onClick={() => setStatus(k)} className={`h-9 px-3 ${status === k ? "bg-ice text-night" : "bg-card"}`}>
                   {t}
                 </button>
               ))}
@@ -195,7 +195,7 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
       </div>
 
       {open ? (
-        <aside ref={panelRef} className="fixed inset-y-0 right-0 z-30 w-full overflow-y-auto border-l-2 border-ink bg-paper p-5 shadow-2xl sm:w-[26rem]" aria-label="Hồ sơ nhân viên">
+        <aside ref={panelRef} className="fixed inset-y-0 right-0 z-30 w-full overflow-y-auto border-l border-edge bg-paper p-5 shadow-2xl sm:w-[26rem]" aria-label="Hồ sơ nhân viên">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-display text-3xl font-semibold">Hồ sơ</h2>
             <button type="button" aria-label="Đóng" className="grid size-9 place-items-center rounded-md border border-edge bg-card" onClick={() => setOpenId(null)}>
@@ -207,7 +207,7 @@ export function EmployeesView({ ctx }: { ctx: AdminCtx }) {
       ) : null}
 
       {adding ? (
-        <aside className="fixed inset-y-0 right-0 z-30 w-full overflow-y-auto border-l-2 border-ink bg-paper p-5 shadow-2xl sm:w-[30rem]" aria-label="Thêm nhân viên">
+        <aside className="fixed inset-y-0 right-0 z-30 w-full overflow-y-auto border-l border-edge bg-paper p-5 shadow-2xl sm:w-[30rem]" aria-label="Thêm nhân viên">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-display text-3xl font-semibold">Thêm nhân viên</h2>
             <button type="button" aria-label="Đóng" className="grid size-9 place-items-center rounded-md border border-edge bg-card" onClick={() => setAdding(false)}>

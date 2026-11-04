@@ -29,7 +29,7 @@ export function InviteCodeCard() {
   }
 
   return (
-    <section className="space-y-3 rounded-xl border border-edge bg-card p-4">
+    <section className="space-y-3 rounded-xl border border-edge bg-card p-3.5">
       <h2 className="font-display text-2xl font-semibold">Mã mời nhân viên</h2>
       <p className="text-sm text-muted">Gửi mã này cho nhân viên mới. Họ nhập mã khi tạo tài khoản. Lộ mã thì tạo mã mới.</p>
       <div className="flex items-center gap-3">

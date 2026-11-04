@@ -78,13 +78,13 @@ export function Workspace({ user }: { user: AppUser }) {
   const punching = tab === "punch";
 
   return (
-    <div className="theme-night flex h-dvh justify-center bg-paper">
+    <div className="flex h-dvh justify-center bg-paper">
       {askPassword ? <FirstLoginPassword onClose={() => setAskPassword(false)} /> : null}
       <div className="flex h-full w-full max-w-md flex-col bg-paper md:max-w-3xl lg:max-w-4xl">
         {punching ? null : (
-          <header className="safe-top flex items-center justify-between gap-3 border-b border-line bg-night-deep px-5 pb-4">
+          <header className="safe-top flex items-center justify-between gap-3 border-b border-line bg-card px-5 pb-4">
             <div className="min-w-0">
-              <p className="truncate text-xs font-semibold text-ice">{data?.companyName ?? "VÀO CA"}</p>
+              <p className="truncate text-xs font-semibold text-amber">{data?.companyName ?? "VÀO CA"}</p>
               <p className="truncate font-display text-3xl font-semibold">{TAB_TITLE[tab]}</p>
             </div>
             <div className="account-compact shrink-0">
@@ -94,11 +94,11 @@ export function Workspace({ user }: { user: AppUser }) {
         )}
         <main className="min-h-0 flex-1 overflow-y-auto">
           {blocked ? (
-            <div className="mx-4 mt-8 space-y-3 rounded-2xl border border-edge bg-card p-6 text-center">
-              <Smartphone className="mx-auto size-10 text-ice" aria-hidden />
+            <div className="mx-4 mt-8 space-y-3 rounded-2xl border border-edge bg-card p-5 text-center">
+              <Smartphone className="mx-auto size-10 text-amber" aria-hidden />
               <h2 className="font-display text-2xl font-semibold">Tài khoản đang dùng ở máy khác</h2>
               <p className="text-sm text-muted">Mỗi tài khoản chỉ dùng được trên một điện thoại để tránh chấm công hộ. Nếu bạn vừa đổi điện thoại, hãy nhờ quản trị bấm "Cho phép đổi máy" cho bạn, rồi mở lại ứng dụng trên máy mới.</p>
-              <button type="button" className="h-12 w-full rounded-md border border-edge bg-paper text-sm font-semibold" onClick={() => window.location.reload()}>
+              <button type="button" className="h-11 w-full rounded-md border border-edge bg-paper text-sm font-semibold" onClick={() => window.location.reload()}>
                 Thử lại
               </button>
             </div>
@@ -155,7 +155,7 @@ export function Workspace({ user }: { user: AppUser }) {
             </div>
           ) : null}
         </main>
-        <nav className="tabbar shrink-0 border-t border-line bg-night-deep" aria-label="Tính năng">
+        <nav className="tabbar shrink-0 border-t border-line bg-card" aria-label="Tính năng">
           <div className="flex">
             {items.map((item) => (
               <TabButton
@@ -190,7 +190,7 @@ function ShortcutRow({
       onClick={onClick}
       className="flex min-h-12 w-full items-center gap-3 border-t border-line px-4 text-left text-sm font-semibold text-ink first:border-t-0"
     >
-      <Icon className="size-5 text-ice" strokeWidth={1.75} />
+      <Icon className="size-5 text-amber" strokeWidth={1.75} />
       <span className="flex-1">{label}</span>
       {badge > 0 ? <span className="rounded-full bg-clay px-2 text-xs font-semibold text-night">{badge}</span> : null}
       <ChevronRight className="size-4 text-muted" />
@@ -200,7 +200,7 @@ function ShortcutRow({
 
 function BackToProfile({ onClick }: { onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="mb-3 text-sm font-semibold text-ice">
+    <button type="button" onClick={onClick} className="mb-3 text-sm font-semibold text-amber">
       ← Cá nhân
     </button>
   );
@@ -223,7 +223,7 @@ function TabButton({
       type="button"
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className={`flex min-h-16 flex-1 flex-col items-center justify-center gap-1 px-1 text-[0.7rem] font-semibold whitespace-nowrap md:text-sm ${active ? "text-ice" : "text-muted"}`}
+      className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 px-1 text-[0.7rem] font-semibold whitespace-nowrap md:text-sm ${active ? "text-amber" : "text-muted"}`}
     >
       <span className="relative">
         <Icon className="size-5" strokeWidth={active ? 2.25 : 1.75} />

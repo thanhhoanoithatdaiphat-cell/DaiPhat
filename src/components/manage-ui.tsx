@@ -5,7 +5,7 @@ import { CircleCheck, ChevronLeft, ChevronRight, type LucideIcon } from "lucide-
 export type CardTone = "gold" | "clay" | "ok" | "ink";
 
 const TONE: Record<CardTone, { ring: string; icon: string; num: string }> = {
-  gold: { ring: "border-ice/50 bg-ice/[0.07]", icon: "bg-ice/20 text-ice", num: "text-ice" },
+  gold: { ring: "border-ice/50 bg-ice/[0.07]", icon: "bg-ice/20 text-amber", num: "text-amber" },
   clay: { ring: "border-clay/50 bg-clay/[0.07]", icon: "bg-clay/20 text-clay", num: "text-clay" },
   ok: { ring: "border-line bg-card", icon: "bg-ok/15 text-ok", num: "text-ok" },
   ink: { ring: "border-line bg-card", icon: "bg-sand text-ink", num: "text-ink" },
@@ -36,7 +36,7 @@ export function AlertCard({
       disabled={empty || !onClick}
       onClick={onClick}
       aria-label={`${label}: ${count}${empty ? ", không có" : ", bấm để xem chi tiết"}`}
-      className={`relative flex min-h-[7.25rem] flex-col justify-between rounded-2xl border p-3.5 text-left transition-transform active:scale-[0.98] disabled:cursor-default ${t.ring} ${empty ? "opacity-60" : ""}`}
+      className={`relative flex min-h-[6.5rem] flex-col justify-between rounded-2xl border p-3.5 text-left transition-transform active:scale-[0.98] disabled:cursor-default ${t.ring} ${empty ? "opacity-60" : ""}`}
     >
       <div className="flex items-start justify-between">
         <span className={`grid size-9 place-items-center rounded-full ${t.icon}`}>
@@ -46,7 +46,7 @@ export function AlertCard({
       </div>
       <div>
         <p className="flex items-baseline gap-2">
-          <span className={`font-display text-[2.6rem] leading-none font-bold tabular-nums ${empty ? "text-muted" : t.num}`}>{count}</span>
+          <span className={`font-display text-[2.25rem] leading-none font-bold tabular-nums ${empty ? "text-muted" : t.num}`}>{count}</span>
           <span className="text-sm font-semibold text-ink">{label}</span>
         </p>
         <p className="mt-1 truncate text-xs text-muted">{empty ? "Không có" : (hint ?? "Bấm để xem")}</p>
@@ -62,7 +62,7 @@ export function CountTile({ label, count, onClick, tone = "ink" }: { label: stri
       type="button"
       onClick={onClick}
       aria-label={`${label}: ${count}, bấm để xem danh sách`}
-      className="flex flex-col items-start rounded-2xl border border-line bg-card px-3.5 py-3 text-left transition-transform active:scale-[0.98]"
+      className="flex flex-col items-start rounded-2xl border border-line bg-card px-3.5 py-2.5 text-left transition-transform active:scale-[0.98]"
     >
       <span className={`font-display text-4xl leading-none font-bold tabular-nums ${count === 0 ? "text-muted" : TONE[tone].num}`}>{count}</span>
       <span className="mt-1.5 flex w-full items-center justify-between text-xs text-muted">
@@ -110,8 +110,8 @@ export function DetailPage({
 
   if (typeof document === "undefined") return null;
   return createPortal(
-    <div role="dialog" aria-modal="true" aria-label={title} className="theme-night page-in fixed inset-0 z-50 flex flex-col bg-paper text-ink">
-      <header className="safe-top shrink-0 border-b border-line bg-night-deep px-3 pb-3">
+    <div role="dialog" aria-modal="true" aria-label={title} className="page-in fixed inset-0 z-50 flex flex-col bg-paper text-ink">
+      <header className="safe-top shrink-0 border-b border-line bg-card px-3 pb-3">
         <div className="mx-auto flex w-full max-w-md items-center gap-2 md:max-w-3xl">
           <button
             type="button"
@@ -122,7 +122,7 @@ export function DetailPage({
             <ChevronLeft className="size-6" />
           </button>
           <div className="min-w-0 flex-1">
-            {subtitle ? <p className="truncate text-xs font-semibold text-ice">{subtitle}</p> : null}
+            {subtitle ? <p className="truncate text-xs font-semibold text-amber">{subtitle}</p> : null}
             <h2 className="truncate font-display text-2xl leading-tight font-semibold">{title}</h2>
           </div>
           {count != null ? (

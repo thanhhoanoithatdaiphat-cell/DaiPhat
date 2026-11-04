@@ -214,7 +214,7 @@ export function AddEmployees({ people, onChanged, onClose }: { people: PersonRow
             ["bulk", "Nhiều người (dán danh sách)"],
           ] as const
         ).map(([k, t]) => (
-          <button key={k} type="button" role="tab" aria-selected={mode === k} onClick={() => setMode(k)} className={`h-10 flex-1 px-3 ${mode === k ? "bg-ink text-card" : "bg-card"}`}>
+          <button key={k} type="button" role="tab" aria-selected={mode === k} onClick={() => setMode(k)} className={`h-10 flex-1 px-3 ${mode === k ? "bg-ice text-night" : "bg-card"}`}>
             {t}
           </button>
         ))}

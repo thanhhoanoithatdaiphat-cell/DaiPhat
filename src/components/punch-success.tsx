@@ -33,7 +33,7 @@ const MESSAGES_OUT = [
   "Cả đội cảm ơn bạn vì hôm nay. Hẹn gặp lại ngày mai!",
 ];
 
-const CONFETTI_COLORS = ["#fcb300", "#ffd666", "#ff8a3d", "#6fd3a0", "#fff3d6"];
+const CONFETTI_COLORS = ["#fcb300", "#ffd666", "#ff8a3d", "#2f9d6b", "#e0604d"];
 
 function pick<T>(list: T[]): T {
   return list[Math.floor(Math.random() * list.length)];
@@ -77,7 +77,7 @@ function CalendarIllustration() {
         </clipPath>
       </defs>
       {/* Nền thành phố mờ */}
-      <g fill="rgba(255,243,214,0.06)">
+      <g fill="rgba(138,90,0,0.07)">
         <rect x="6" y="80" width="24" height="40" />
         <rect x="30" y="62" width="24" height="58" />
         <rect x="54" y="90" width="16" height="30" />
@@ -95,9 +95,9 @@ function CalendarIllustration() {
       </g>
       {/* Tờ lịch */}
       <g className="ps-cal">
-        <rect x="70" y="26" width="100" height="86" rx="12" fill="#3a2f24" stroke="#fcb300" strokeWidth="2.5" />
+        <rect x="70" y="26" width="100" height="86" rx="12" fill="#fffdf8" stroke="#fcb300" strokeWidth="2.5" />
         <rect x="70" y="26" width="100" height="22" fill="#fcb300" clipPath="url(#ps-cal-clip)" />
-        <g stroke="#fff3d6" strokeWidth="3.5" strokeLinecap="round">
+        <g stroke="#8a5a00" strokeWidth="3.5" strokeLinecap="round">
           <path d="M88 20v12M104 20v12M120 20v12M136 20v12M152 20v12" />
         </g>
         <g fill="#fcb300">
@@ -108,13 +108,13 @@ function CalendarIllustration() {
           <rect className="ps-sq ps-sq-5" x="146" y="82" width="16" height="16" rx="4" />
         </g>
         {/* Ô được đánh dấu */}
-        <circle className="ps-ripple" cx="132" cy="66" r="9" fill="none" stroke="#6fd3a0" strokeWidth="2" />
-        <rect className="ps-mark" x="124" y="58" width="16" height="16" rx="4" fill="#6fd3a0" />
+        <circle className="ps-ripple" cx="132" cy="66" r="9" fill="none" stroke="#2f9d6b" strokeWidth="2" />
+        <rect className="ps-mark" x="124" y="58" width="16" height="16" rx="4" fill="#2f9d6b" />
         <path
           className="ps-tick"
           d="M127.5 66.5l3.2 3.2 5.8-6.6"
           fill="none"
-          stroke="#1c130c"
+          stroke="#ffffff"
           strokeWidth="2.6"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -216,7 +216,7 @@ export function PunchSuccessDialog({
 
   return createPortal(
     <div
-      className={`theme-night ps-overlay ${closing ? "ps-closing" : ""}`}
+      className={`ps-overlay ${closing ? "ps-closing" : ""}`}
       onClick={(event) => {
         if (event.target === event.currentTarget) close();
       }}

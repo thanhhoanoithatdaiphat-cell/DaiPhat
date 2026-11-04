@@ -102,12 +102,12 @@ export function AdminApp({ user, view, onView }: { user: AppUser; view: AdminVie
 
   return (
     <div className="flex min-h-dvh flex-col bg-paper text-ink lg:flex-row">
-      <aside className="safe-top bg-night text-[#fff3d6] lg:sticky lg:top-0 lg:flex lg:h-dvh lg:w-52 lg:shrink-0 lg:flex-col">
+      <aside className="safe-top border-b border-line bg-card text-ink lg:sticky lg:top-0 lg:flex lg:h-dvh lg:w-52 lg:shrink-0 lg:flex-col lg:border-r lg:border-b-0">
         <div className="flex items-center gap-3 px-4 pt-4 lg:pt-6">
-          <img src="/punch-logo-dark.png" alt="" className="size-11 shrink-0 rounded-full bg-night-deep object-cover ring-2 ring-ice" />
+          <img src="/punch-logo-dark.png" alt="" className="size-11 shrink-0 rounded-full bg-card object-cover ring-2 ring-ice" />
           <div className="min-w-0">
             <p className="font-display text-2xl leading-none font-bold">VÀO CA</p>
-            <p className="mt-1 truncate text-[0.7rem] font-semibold text-ice">{data.companyName}</p>
+            <p className="mt-1 truncate text-[0.7rem] font-semibold text-amber">{data.companyName}</p>
           </div>
         </div>
         <nav className="mt-3 flex gap-1 overflow-x-auto px-3 pb-3 lg:mt-7 lg:flex-1 lg:flex-col lg:overflow-visible lg:pb-0" aria-label="Quản trị">
@@ -120,29 +120,29 @@ export function AdminApp({ user, view, onView }: { user: AppUser; view: AdminVie
                 onClick={() => onView(item.id)}
                 aria-current={active ? "page" : undefined}
                 className={`relative flex shrink-0 items-center gap-2.5 rounded-lg px-3.5 py-2.5 text-sm font-semibold ${
-                  active ? "bg-ice text-night" : "text-[#fff3d6]/85 hover:bg-white/10"
+                  active ? "bg-ice text-night" : "text-ink/80 hover:bg-sand"
                 }`}
               >
                 {item.label}
                 {item.badge ? (
-                  <span className="ml-auto rounded-full bg-[#7a2e2a] px-2 py-px text-[0.7rem] font-bold text-[#fff3d6]">{item.badge}</span>
+                  <span className="ml-auto rounded-full bg-clay px-2 py-px text-[0.7rem] font-bold text-white">{item.badge}</span>
                 ) : null}
               </button>
             );
           })}
         </nav>
-        <div className="hidden border-t border-white/10 px-4 py-4 lg:block">
+        <div className="hidden border-t border-line px-4 py-4 lg:block">
           <p className="truncate text-xs font-semibold">
             {role === "admin" ? "Quản trị" : "Người duyệt"} · {data.profile.fullName}
           </p>
-          <div className="mt-2 flex items-center gap-3 text-xs text-[#fff3d6]/70">
-            <Link to="/" className="inline-flex items-center gap-1 hover:text-[#fff3d6]">
+          <div className="mt-2 flex items-center gap-3 text-xs text-muted">
+            <Link to="/" className="inline-flex items-center gap-1 hover:text-ink">
               <Smartphone className="size-3.5" /> Bản chấm công
             </Link>
             <button
               type="button"
               disabled={signingOut}
-              className="hover:text-[#fff3d6]"
+              className="hover:text-ink"
               onClick={() => {
                 setSigningOut(true);
                 void signOut().catch(() => setSigningOut(false));

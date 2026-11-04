@@ -94,12 +94,12 @@ export function PermissionGuide({
   const title = need.length === 2 ? "Cần bật quyền Vị trí và Camera" : `Cần bật quyền ${LABEL[need[0]]}`;
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end bg-ink/60" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="max-h-[85dvh] w-full overflow-y-auto rounded-t-2xl bg-card px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-ink">
+    <div className="fixed inset-0 z-40 flex items-end bg-scrim" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="max-h-[85dvh] w-full overflow-y-auto rounded-t-2xl bg-card px-4 pt-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-ink">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2">
-            {need.includes("geolocation") ? <MapPin className="size-5 text-ice" /> : null}
-            {need.includes("camera") ? <Camera className="size-5 text-ice" /> : null}
+            {need.includes("geolocation") ? <MapPin className="size-5 text-amber" /> : null}
+            {need.includes("camera") ? <Camera className="size-5 text-amber" /> : null}
             <h2 className="font-display text-lg font-bold">{title}</h2>
           </div>
           <button type="button" onClick={onClose} aria-label="Đóng" className="grid size-9 shrink-0 place-items-center rounded-full bg-sand">
@@ -118,7 +118,7 @@ export function PermissionGuide({
           ))}
         </ol>
         <div className="mt-5 grid gap-2">
-          <button type="button" className={`${primaryBtn} h-12 w-full`} onClick={onRetry}>
+          <button type="button" className={`${primaryBtn} h-11 w-full`} onClick={onRetry}>
             Tôi đã bật, thử lại
           </button>
           <button type="button" className={`${secondaryBtn} h-11 w-full`} onClick={onClose}>

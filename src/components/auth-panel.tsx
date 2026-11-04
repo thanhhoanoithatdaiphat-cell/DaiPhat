@@ -5,7 +5,7 @@ import { errorText, primaryBtn } from "@/components/ui";
 import { normalizeVnPhone, phoneLoginEmail } from "@/lib/phone";
 
 const lineField =
-  "h-12 w-full border-b border-line bg-transparent text-base text-ink outline-none placeholder:text-muted/50 focus:border-ink";
+  "h-11 w-full border-b border-line bg-transparent text-base text-ink outline-none placeholder:text-muted/50 focus:border-amber";
 
 function mapAuthError(message: string | undefined): string {
   const text = message ?? "";
@@ -214,7 +214,7 @@ function ModeButton({
     <button
       type="button"
       onClick={onClick}
-      className={`-mb-px h-11 border-b-2 text-sm ${active ? "border-ink font-medium text-ink" : "border-transparent text-muted"}`}
+      className={`-mb-px h-11 border-b-2 text-sm ${active ? "border-amber font-medium text-ink" : "border-transparent text-muted"}`}
     >
       {children}
     </button>

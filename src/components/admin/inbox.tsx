@@ -204,10 +204,10 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
               setChecked(new Set());
               setRejecting(false);
             }}
-            className={`rounded-md border border-edge px-3 py-1.5 text-sm font-semibold ${tab === t.id ? "bg-night text-ice" : "bg-card"}`}
+            className={`rounded-md border border-edge px-3 py-1.5 text-sm font-semibold ${tab === t.id ? "bg-ice text-night" : "bg-card"}`}
           >
             {t.label}
-            {t.count ? <span className={`ml-2 ${tab === t.id ? "text-ice" : "text-clay"}`}>{t.count}</span> : null}
+            {t.count ? <span className={`ml-2 ${tab === t.id ? "text-amber" : "text-clay"}`}>{t.count}</span> : null}
           </button>
         ))}
         <label className="relative ml-auto">
@@ -328,7 +328,7 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
 
           <div className="space-y-3 lg:sticky lg:top-4">
             {picked.length > 1 ? (
-              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge bg-ink p-3 text-card">
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge bg-sand p-3 text-ink">
                 <span className="mr-auto text-sm font-semibold">{picked.length} mục đã chọn</span>
                 <button type="button" disabled={busy} className="rounded-md bg-ice px-4 py-2 text-sm font-semibold text-ink" onClick={() => void decide(picked, "approved", "")}>
                   Duyệt {picked.length} mục

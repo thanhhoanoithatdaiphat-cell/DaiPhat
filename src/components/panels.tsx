@@ -670,6 +670,17 @@ export function PunchPanel({
 
       {cameraFor ? (
         <CameraSheet
+          stamp={
+            pendingLoc
+              ? {
+                  lat: pendingLoc.lat,
+                  lng: pendingLoc.lng,
+                  placeName:
+                    active.find((loc) => distanceM(pendingLoc.lat, pendingLoc.lng, loc.lat, loc.lng) <= loc.radiusMeters)?.name ?? null,
+                }
+              : null
+          }
+          lookupAddress={(lat, lng) => whereAmI({ data: { lat, lng } }).then((r) => r.address)}
           onClose={() => setCameraFor(null)}
           onDenied={() => {
             const type = cameraFor;

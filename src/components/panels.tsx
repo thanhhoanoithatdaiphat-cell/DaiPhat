@@ -1,3 +1,4 @@
+import { TimeField } from "@/components/time-field";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { downloadXlsx } from "@/lib/xlsx-lite";
 import { timesheetSheets } from "@/lib/timesheet-xlsx";
@@ -124,7 +125,7 @@ function punchLabel(row: PunchRow, settings: Settings): string {
 
 function Badge({ tone, children }: { tone: "ok" | "late" | "muted"; children: string }) {
   const toneClass =
-    tone === "ok" ? "bg-ink text-card" : tone === "late" ? "bg-clay text-card" : "bg-sand text-muted";
+    tone === "ok" ? "bg-ok/15 text-ok" : tone === "late" ? "bg-clay text-white" : "bg-sand text-muted";
   return <span className={`rounded-sm px-2 py-1 text-xs font-semibold ${toneClass}`}>{children}</span>;
 }
 
@@ -238,7 +239,7 @@ function PunchSuccess({ info, lateFrom, onClose, onDetail }: { info: SuccessInfo
           : "Cảm ơn bạn đã nỗ lực hôm nay. Nghỉ ngơi thật tốt nhé!";
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-5 py-6 backdrop-blur-sm"
+      className="fixed inset-0 z-50 grid place-items-center bg-scrim px-5 py-6 backdrop-blur-sm"
       onPointerDown={(e) => e.target === e.currentTarget && onClose()}
       role="dialog"
       aria-modal="true"
@@ -250,20 +251,20 @@ function PunchSuccess({ info, lateFrom, onClose, onDetail }: { info: SuccessInfo
         </div>
         <div className="space-y-3 px-6 pt-5 pb-6 text-center">
           <svg viewBox="0 0 200 110" className="mx-auto h-24 w-auto" aria-hidden="true">
-            <rect x="22" y="50" width="34" height="54" rx="2" fill="#4a3d31" opacity=".6" />
-            <rect x="148" y="40" width="30" height="64" rx="2" fill="#4a3d31" opacity=".6" />
+            <rect x="22" y="50" width="34" height="54" rx="2" fill="#8a5a00" opacity=".1" />
+            <rect x="148" y="40" width="30" height="64" rx="2" fill="#8a5a00" opacity=".1" />
             <rect x="60" y="14" width="80" height="80" rx="12" fill="none" stroke="#ffb400" strokeWidth="3" />
             <path d="M60 26a12 12 0 0 1 12-12h56a12 12 0 0 1 12 12v12H60z" fill="#ffb400" />
             {[78, 92, 106, 120].map((x) => (
-              <line key={x} x1={x} y1="8" x2={x} y2="22" stroke="#fff3d6" strokeWidth="3" strokeLinecap="round" />
+              <line key={x} x1={x} y1="8" x2={x} y2="22" stroke="#8a5a00" strokeWidth="3" strokeLinecap="round" />
             ))}
             {[72, 88, 104, 120].map((x, i) => (
-              <rect key={x} x={x} y="48" width="12" height="12" rx="3" fill={i === 2 ? "#6fd3a0" : "#ffb400"} />
+              <rect key={x} x={x} y="48" width="12" height="12" rx="3" fill={i === 2 ? "#2f9d6b" : "#ffb400"} />
             ))}
             {[104, 120].map((x) => (
               <rect key={x} x={x} y="66" width="12" height="12" rx="3" fill="#ffb400" />
             ))}
-            <path d="M100 54l3 3 6-6" fill="none" stroke="#1c1410" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M100 54l3 3 6-6" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M44 24v8M40 28h8M168 22v6M165 25h6" stroke="#ffb400" strokeWidth="2" strokeLinecap="round" />
           </svg>
           <p className="font-display text-5xl leading-none font-bold text-ok tabular-nums">{clockWithSeconds(result.punchedAt)}</p>
@@ -272,7 +273,7 @@ function PunchSuccess({ info, lateFrom, onClose, onDetail }: { info: SuccessInfo
             qua <span className="ml-1 inline-block rounded-full border border-line bg-paper px-3 py-1 text-ink">{via}</span>
           </p>
           <p className="flex items-center justify-center gap-2 text-sm">
-            <MapPin className="size-5 shrink-0 text-ice" />
+            <MapPin className="size-5 shrink-0 text-amber" />
             <span>
               {result.offsite
                 ? (result.address ?? `Toạ độ ${coordText(result.lat, result.lng)}`)
@@ -280,7 +281,7 @@ function PunchSuccess({ info, lateFrom, onClose, onDetail }: { info: SuccessInfo
             </span>
           </p>
           {result.offsite ? (
-            <a href={mapsUrl(result.lat, result.lng)} target="_blank" rel="noopener noreferrer" className="inline-block text-sm font-semibold text-ice underline">
+            <a href={mapsUrl(result.lat, result.lng)} target="_blank" rel="noopener noreferrer" className="inline-block text-sm font-semibold text-amber underline">
               Xem vị trí trên bản đồ
             </a>
           ) : null}
@@ -389,7 +390,7 @@ export function PunchPanel({
       ? geo.accuracy <= 50
         ? { text: "GPS tốt", cls: "text-ok" }
         : geo.accuracy <= 150
-          ? { text: "GPS yếu", cls: "text-ice" }
+          ? { text: "GPS yếu", cls: "text-amber" }
           : { text: "GPS kém", cls: "text-clay" }
       : geo.status === "wait"
         ? { text: "Đang định vị…", cls: "text-muted" }
@@ -531,17 +532,17 @@ export function PunchPanel({
       <section className="flex shrink-0 items-start justify-between gap-3 px-5 pt-[max(1rem,env(safe-area-inset-top))] md:px-8">
         <div className="min-w-0">
           <p className="text-xs text-muted">{dateLine()}</p>
-          <h1 className="pz-title font-display mt-0.5 truncate text-[1.6rem] leading-tight font-bold text-ink md:text-4xl">
+          <h1 className="pz-title font-display mt-0.5 truncate text-[1.4rem] leading-tight font-bold text-ink md:text-4xl">
             Chào {data.profile.fullName}
           </h1>
         </div>
-        <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-full bg-night-deep ring-2 ring-ice">
+        <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-full bg-card ring-2 ring-ice">
           <img src={data.profile.avatar || "/punch-logo-dark.png"} alt="" className="size-full object-cover" />
         </span>
       </section>
 
-      <div className="mx-5 flex shrink-0 items-center gap-3 rounded-xl border border-line bg-card px-4 py-3 md:mx-8">
-        <MapPin className="size-5 shrink-0 text-ice" strokeWidth={2} />
+      <div className="mx-5 flex shrink-0 items-center gap-3 rounded-xl border border-line bg-card px-3.5 py-2.5 md:mx-8">
+        <MapPin className="size-5 shrink-0 text-amber" strokeWidth={2} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-ink">
             {outside ? "Vị trí của bạn" : (nearest?.name ?? (active[0]?.name || "Điểm chấm công"))}
@@ -568,7 +569,7 @@ export function PunchPanel({
       </div>
 
       <div className="shrink-0 text-center">
-        <p className="pz-clock font-display text-[clamp(2.75rem,8dvh,4.5rem)] leading-none font-bold tabular-nums text-ink md:text-[6.5rem]">
+        <p className="pz-clock font-display text-[clamp(2.25rem,6.5dvh,3.5rem)] leading-none font-bold tabular-nums text-ink md:text-[5rem]">
           {clock.time.slice(0, 5)}
         </p>
         <p className="pz-hide-compact mt-1 text-xs text-muted">
@@ -590,7 +591,7 @@ export function PunchPanel({
             <img src="/punch-logo-dark.png" alt="" className="punch-logo" />
           </span>
         </button>
-        <p className="mt-[clamp(0.75rem,2.4dvh,1.25rem)] text-center font-display text-xl font-bold tracking-wide text-ice md:text-2xl">
+        <p className="mt-[clamp(0.75rem,2.4dvh,1.25rem)] text-center font-display text-xl font-bold tracking-wide text-amber md:text-2xl">
           {busy ? "ĐANG GHI…" : dayDone ? "ĐÃ CHẤM ĐỦ HÔM NAY" : primary === "in" ? "CHẠM ĐỂ VÀO CA" : "CHẠM ĐỂ RA CA"}
         </p>
         {dayDone ? (
@@ -626,42 +627,42 @@ export function PunchPanel({
       ) : null}
 
       <div className="mx-5 grid shrink-0 grid-cols-2 gap-3 md:mx-8">
-        <div className="rounded-xl border border-line bg-card px-4 py-2.5">
+        <div className="rounded-xl border border-line bg-card px-3.5 py-2.5">
           <p className="text-xs text-muted">Giờ vào</p>
-          <p className="font-display text-[1.75rem] leading-tight font-bold whitespace-nowrap tabular-nums text-ink">
+          <p className="font-display text-[1.5rem] leading-tight font-bold whitespace-nowrap tabular-nums text-ink">
             {firstIn ? vnTime(firstIn.punchedAt) : "--:--"}
           </p>
           <p className={`pz-hide-tight text-xs font-semibold ${!firstIn ? "text-muted" : inLate ? "text-clay" : "text-ok"}`}>
             {!firstIn ? "Chưa vào ca" : inLate ? `Muộn ${firstIn.lateMinutes} phút` : "Đúng giờ"}
           </p>
         </div>
-        <div className="rounded-xl border border-line bg-card px-4 py-2.5">
+        <div className="rounded-xl border border-line bg-card px-3.5 py-2.5">
           <p className="text-xs text-muted">Đã làm hôm nay</p>
-          <p className="font-display text-[1.75rem] leading-tight font-bold whitespace-nowrap tabular-nums text-ink">
+          <p className="font-display text-[1.5rem] leading-tight font-bold whitespace-nowrap tabular-nums text-ink">
             {Math.floor(worked / 60)}h {String(worked % 60).padStart(2, "0")}
           </p>
           <p
-            className={`pz-hide-tight text-xs font-semibold ${worked >= data.settings.fullDayMinutes ? "text-ok" : worked >= data.settings.halfDayMinutes ? "text-ice" : "text-muted"}`}
+            className={`pz-hide-tight text-xs font-semibold ${worked >= data.settings.fullDayMinutes ? "text-ok" : worked >= data.settings.halfDayMinutes ? "text-amber" : "text-muted"}`}
           >
             {worked >= data.settings.fullDayMinutes ? "Đủ công" : worked >= data.settings.halfDayMinutes ? "Đủ nửa công" : "Chưa đủ công"}
           </p>
         </div>
       </div>
 
-      <div className="mx-5 flex shrink-0 items-center gap-4 rounded-xl bg-ice px-4 py-3 text-night md:mx-8">
+      <div className="mx-5 flex shrink-0 items-center gap-4 rounded-xl border border-ice/50 bg-ice/15 px-3.5 py-2.5 text-ink md:mx-8">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium">Công tháng {monthNo}</p>
-          <p className="font-display text-[1.75rem] leading-tight font-bold tabular-nums">
+          <p className="font-display text-[1.5rem] leading-tight font-bold tabular-nums">
             {congText(cong)} / {standard || "–"}
           </p>
-          <div className="pz-hide-compact mt-1.5 h-1.5 overflow-hidden rounded-full bg-night/25">
-            <div className="h-full rounded-full bg-night" style={{ width: `${standard ? Math.min(100, (cong / standard) * 100) : 0}%` }} />
+          <div className="pz-hide-compact mt-1.5 h-1.5 overflow-hidden rounded-full bg-card">
+            <div className="h-full rounded-full bg-gold-deep" style={{ width: `${standard ? Math.min(100, (cong / standard) * 100) : 0}%` }} />
           </div>
         </div>
         <button
           type="button"
           onClick={onGoRequests}
-          className="shrink-0 rounded-lg bg-night px-4 py-2.5 text-sm font-semibold text-ice"
+          className="shrink-0 rounded-lg bg-ice px-4 py-2.5 text-sm font-semibold text-night"
         >
           Gửi đơn
         </button>
@@ -758,7 +759,7 @@ function TodayPunchers({ selfId, lateFrom, refreshKey }: { selfId: string; lateF
           <p className="text-xs text-muted">{top ? `${punched}/${total} người đã vào ca · xếp theo giờ vào` : "Đang tải…"}</p>
         </div>
         {top && punched > 5 ? (
-          <button type="button" className="shrink-0 text-sm font-semibold text-ice" onClick={openAll}>
+          <button type="button" className="shrink-0 text-sm font-semibold text-amber" onClick={openAll}>
             Xem tất cả ({punched})
           </button>
         ) : null}
@@ -770,7 +771,7 @@ function TodayPunchers({ selfId, lateFrom, refreshKey }: { selfId: string; lateF
       ) : null}
       {error ? <p className="text-sm text-clay">{error}</p> : null}
       {top && top.people.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-line bg-card px-4 py-5 text-center text-sm text-muted">Chưa có ai chấm công. Hãy là người đầu tiên hôm nay!</p>
+        <p className="rounded-xl border border-dashed border-line bg-card px-3.5 py-4 text-center text-sm text-muted">Chưa có ai chấm công. Hãy là người đầu tiên hôm nay!</p>
       ) : null}
       {top && top.people.length > 0 ? (
         <ol className="divide-y divide-line overflow-hidden rounded-xl border border-edge bg-card">
@@ -786,8 +787,8 @@ function TodayPunchers({ selfId, lateFrom, refreshKey }: { selfId: string; lateF
       ) : null}
 
       {open ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" onPointerDown={(e) => e.target === e.currentTarget && setOpen(false)}>
-          <div className="theme-night flex max-h-[85dvh] w-full max-w-md flex-col rounded-t-2xl border border-edge bg-paper md:max-w-xl">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-scrim" onPointerDown={(e) => e.target === e.currentTarget && setOpen(false)}>
+          <div className="flex max-h-[85dvh] w-full max-w-md flex-col rounded-t-2xl border border-edge bg-paper md:max-w-xl">
             <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
               <div>
                 <h3 className="font-display text-xl font-bold">Đã chấm công hôm nay</h3>
@@ -896,7 +897,7 @@ export function ProfilePanel({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col items-center rounded-xl border border-edge bg-card px-5 py-6">
+      <div className="flex flex-col items-center rounded-xl border border-edge bg-card px-4 py-5">
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
@@ -931,12 +932,12 @@ export function ProfilePanel({
         )}
         {error ? <p className="mt-2 text-sm text-clay">{error}</p> : null}
         {saved && !draft ? <p className="mt-2 text-sm text-ok">Đã lưu ảnh đại diện.</p> : null}
-        <p className="mt-4 text-xs font-semibold text-ice">{data.companyName}</p>
+        <p className="mt-4 text-xs font-semibold text-amber">{data.companyName}</p>
         <p className="font-display text-3xl font-bold">{data.profile.fullName || "Nhân viên"}</p>
         <span className="mt-1 rounded-full bg-sand px-3 py-0.5 text-xs font-semibold text-muted">{ROLE_LABEL[data.profile.role]}</span>
       </div>
 
-      <div className="rounded-xl border border-edge bg-card p-4">
+      <div className="rounded-xl border border-edge bg-card p-3.5">
         <dl className="divide-y divide-line text-sm">
           {(
             [
@@ -1079,13 +1080,13 @@ export function HistoryPanel({ settings }: { settings: Settings }) {
           <ChevronRight className="size-5" />
         </button>
       </div>
-      <div className="rounded-xl bg-ice px-4 py-3.5 text-night">
+      <div className="rounded-xl border border-ice/50 bg-ice/15 px-3.5 py-3 text-ink">
         <p className="text-xs font-medium">Công {formatMonthLabel(month)}</p>
         <p className="font-display text-3xl leading-tight font-bold tabular-nums">
           {summary ? `${congText(summary.cong)} / ${summary.standardDays}` : "…"}
         </p>
-        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-night/25">
-          <div className="h-full rounded-full bg-night" style={{ width: `${summary ? Math.min(100, (summary.cong / Math.max(1, summary.standardDays)) * 100) : 0}%` }} />
+        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-card">
+          <div className="h-full rounded-full bg-gold-deep" style={{ width: `${summary ? Math.min(100, (summary.cong / Math.max(1, summary.standardDays)) * 100) : 0}%` }} />
         </div>
         <p className="mt-1.5 text-[0.7rem]">Chủ nhật và lễ chỉ tính khi tăng ca được duyệt, nhân hệ số của công ty.</p>
       </div>
@@ -1137,7 +1138,7 @@ function dayStory(items: PunchRow[], settings: Settings): { late: string; overti
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-line bg-card px-3.5 py-3">
+    <div className="rounded-xl border border-line bg-card px-3.5 py-2.5">
       <p className="text-xs text-muted">{label}</p>
       <p className="font-display text-3xl font-bold tabular-nums">{value}</p>
     </div>
@@ -1206,14 +1207,14 @@ function MonthGrid({
               type="button"
               onClick={() => onPick(day)}
               className={`relative grid h-11 place-items-center rounded-lg text-sm tabular-nums ${
-                picked === day ? "bg-pine text-card" : markClass(days.get(day) ?? "none")
+                picked === day ? "bg-card font-bold text-ink ring-2 ring-amber" : markClass(days.get(day) ?? "none")
               }`}
             >
               {Number(day.slice(8))}
               {days.get(day) && days.get(day) !== "none" ? (
                 <span
                   className={`absolute bottom-1 size-1.5 rounded-full ${
-                    picked === day ? "bg-card" : days.get(day) === "ok" ? "bg-ok" : days.get(day) === "open" ? "bg-ice" : "bg-clay"
+                    picked === day ? "bg-amber" : days.get(day) === "ok" ? "bg-ok" : days.get(day) === "open" ? "bg-ice" : "bg-clay"
                   }`}
                 />
               ) : null}
@@ -1378,7 +1379,7 @@ export function RequestsPanel({
         </section>
       ) : null}
       {tab === "fix" ? (
-      <form className="space-y-3 rounded-xl border border-line bg-card p-4" onSubmit={submit}>
+      <form className="space-y-3 rounded-xl border border-line bg-card p-3.5" onSubmit={submit}>
         <h2 className="font-display text-2xl font-bold">Gửi đơn sửa công</h2>
         <p className="text-sm text-muted">
           Tháng này đã dùng {used}/{maxCorrections} đơn không bị từ chối. Người phụ trách sẽ duyệt.
@@ -1390,7 +1391,7 @@ export function RequestsPanel({
           </label>
           <label className="space-y-1 text-sm">
             Giờ cần ghi
-            <input className={fieldClass} type="time" value={requestedTime} onChange={(e) => setRequestedTime(e.target.value)} required />
+            <TimeField value={requestedTime} onChange={setRequestedTime} required />
           </label>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -1417,7 +1418,7 @@ export function RequestsPanel({
         </div>
         <label className="block space-y-1 text-sm">
           Ghi chú
-          <textarea className="min-h-24 w-full rounded-md border border-line bg-card px-3 py-2 text-base outline-none focus:border-ink" value={note} onChange={(e) => setNote(e.target.value)} required minLength={4} />
+          <textarea className="min-h-24 w-full rounded-md border border-line bg-card px-3 py-2 text-base outline-none focus:border-amber" value={note} onChange={(e) => setNote(e.target.value)} required minLength={4} />
         </label>
         <button className={`${primaryBtn} w-full`} type="submit" disabled={busy}>{busy ? "Đang gửi…" : "Gửi đơn"}</button>
       </form>
@@ -1431,7 +1432,7 @@ export function RequestsPanel({
         {rows == null ? <p className="text-sm text-muted">Đang tải đơn…</p> : null}
         {rows && archive.length === 0 ? <p className="text-sm text-muted">Chưa có đơn nào.</p> : null}
         {archive.map((row) => (
-          <article key={`all-${row.id}`} className="rounded-xl border border-line bg-card px-4 py-3">
+          <article key={`all-${row.id}`} className="rounded-xl border border-line bg-card px-3.5 py-2.5">
             <div className="flex items-center justify-between gap-3">
               <p className="font-medium">{row.fullName}</p>
               <Badge tone={row.status === "approved" ? "ok" : row.status === "rejected" ? "late" : "muted"}>
@@ -1566,7 +1567,7 @@ function LeaveSection({ canReview, userId, onChanged }: { canReview: boolean; us
         </div>
         <label className="block space-y-1 text-sm">
           Lý do
-          <textarea className="min-h-20 w-full rounded-md border border-line bg-card px-3 py-2 text-base outline-none focus:border-ink" value={note} onChange={(e) => setNote(e.target.value)} required minLength={3} maxLength={300} />
+          <textarea className="min-h-20 w-full rounded-md border border-line bg-card px-3 py-2 text-base outline-none focus:border-amber" value={note} onChange={(e) => setNote(e.target.value)} required minLength={3} maxLength={300} />
         </label>
         <button className={primaryBtn} type="submit" disabled={busy}>{busy ? "Đang gửi…" : "Gửi đơn nghỉ"}</button>
         {error ? <p className="text-sm text-clay">{error}</p> : null}
@@ -1666,7 +1667,7 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
             <p className="text-sm font-semibold tabular-nums text-clay">{pending.length}</p>
           </div>
           {pending.map((row) => (
-            <article key={row.id} className="space-y-3 rounded-xl border border-line bg-card p-4">
+            <article key={row.id} className="space-y-3 rounded-xl border border-line bg-card p-3.5">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold">{row.fullName}</p>
@@ -1689,7 +1690,7 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
           ))}
         </section>
       ) : null}
-      <form className="space-y-3 rounded-xl border border-line bg-card p-4" onSubmit={submit}>
+      <form className="space-y-3 rounded-xl border border-line bg-card p-3.5" onSubmit={submit}>
         <h2 className="font-display text-2xl font-semibold">Xin tăng ca</h2>
         <p className="text-sm text-muted">
           Dùng khi làm vào giờ nghỉ trưa ({settings.lunchStart}–{settings.lunchEnd}). Làm quá {settings.workEnd} thì cứ chấm ra, hệ thống tự tính, không cần gửi đơn.
@@ -1700,7 +1701,7 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
         </label>
         <button
           type="button"
-          className={`w-full rounded-lg border px-3 py-2 text-sm font-semibold ${from === settings.lunchStart && to === settings.lunchEnd ? "border-ink bg-ink/10" : "border-line"}`}
+          className={`w-full rounded-lg border px-3 py-2 text-sm font-semibold ${from === settings.lunchStart && to === settings.lunchEnd ? "border-amber bg-ice/20" : "border-line"}`}
           onClick={() => {
             setFrom(settings.lunchStart);
             setTo(settings.lunchEnd);
@@ -1712,11 +1713,11 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
         <div className="grid grid-cols-2 gap-3">
           <label className="space-y-1 text-sm">
             Từ giờ
-            <input className={fieldClass} type="time" value={from} onChange={(e) => setFrom(e.target.value)} required />
+            <TimeField value={from} onChange={setFrom} required />
           </label>
           <label className="space-y-1 text-sm">
             Đến giờ
-            <input className={fieldClass} type="time" value={to} onChange={(e) => setTo(e.target.value)} required />
+            <TimeField value={to} onChange={setTo} required />
           </label>
         </div>
         <p className={`rounded-lg px-3 py-2 text-sm ${tooShort ? "bg-clay/15 text-clay" : "bg-ok/15 text-ok"}`}>
@@ -1726,7 +1727,7 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
         </p>
         <label className="block space-y-1 text-sm">
           Việc đã làm
-          <textarea className="min-h-20 w-full rounded-md border border-line bg-card px-3 py-2 text-base outline-none focus:border-ink" value={note} onChange={(e) => setNote(e.target.value)} required minLength={3} maxLength={300} placeholder="VD: Hoàn thiện đơn hàng gấp cho khách" />
+          <textarea className="min-h-20 w-full rounded-md border border-line bg-card px-3 py-2 text-base outline-none focus:border-amber" value={note} onChange={(e) => setNote(e.target.value)} required minLength={3} maxLength={300} placeholder="VD: Hoàn thiện đơn hàng gấp cho khách" />
         </label>
         <button className={`${primaryBtn} w-full`} type="submit" disabled={busy || tooShort}>{busy ? "Đang gửi…" : "Gửi đơn tăng ca"}</button>
         {sent ? <p className="text-sm text-ok">{sent}</p> : null}
@@ -1736,7 +1737,7 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
         <section className="space-y-2">
           <h3 className="font-semibold">Đơn tăng ca của tôi</h3>
           {mine.map((row) => (
-            <article key={`mine-${row.id}`} className="rounded-xl border border-line bg-card px-4 py-3">
+            <article key={`mine-${row.id}`} className="rounded-xl border border-line bg-card px-3.5 py-2.5">
               <div className="flex items-center justify-between gap-3">
                 <p className="font-medium">{formatVnDay(row.workDate)} · {row.startTime}–{row.endTime}</p>
                 <Badge tone={statusTone(row.status)}>{statusText(row.status)}</Badge>
@@ -1755,9 +1756,9 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
 type RankEntry = { id: string; name: string; avatar: string | null; main: string; sub: string; short: string; bar: number };
 
 const MEDAL = [
-  { ring: "ring-[#f5c542]", chip: "bg-[#f5c542] text-[#1c130c]", label: "1" },
-  { ring: "ring-[#c9ced6]", chip: "bg-[#c9ced6] text-[#1c130c]", label: "2" },
-  { ring: "ring-[#d28a52]", chip: "bg-[#d28a52] text-[#1c130c]", label: "3" },
+  { ring: "ring-[#f5c542]", chip: "bg-[#f5c542] text-[#2f2519]", label: "1" },
+  { ring: "ring-[#c9ced6]", chip: "bg-[#c9ced6] text-[#2f2519]", label: "2" },
+  { ring: "ring-[#d28a52]", chip: "bg-[#d28a52] text-[#2f2519]", label: "3" },
 ];
 
 function RankAvatar({ name, avatar, className }: { name: string; avatar: string | null; className: string }) {
@@ -1772,7 +1773,7 @@ function Podium({ top, selfId }: { top: RankEntry[]; selfId: string }) {
   // Xếp theo thứ tự 2 – 1 – 3 để người đứng đầu ở giữa và cao nhất.
   const order = [1, 0, 2].filter((i) => top[i]);
   return (
-    <div className="grid grid-cols-3 items-end gap-2 rounded-2xl border border-edge bg-card px-3 pt-5 pb-4">
+    <div className="grid grid-cols-3 items-end gap-2 rounded-2xl border border-edge bg-card px-3 pt-4 pb-3.5">
       {order.map((i) => {
         const e = top[i];
         const first = i === 0;
@@ -1784,7 +1785,7 @@ function Podium({ top, selfId }: { top: RankEntry[]; selfId: string }) {
               <RankAvatar name={e.name} avatar={e.avatar} className={`${first ? "size-20" : "size-16"} ring-4 ${m.ring}`} />
               <span className={`absolute -bottom-2 left-1/2 grid size-6 -translate-x-1/2 place-items-center rounded-full text-xs font-bold ${m.chip}`}>{m.label}</span>
             </div>
-            <p className={`mt-4 line-clamp-2 min-h-10 w-full text-sm leading-5 font-semibold ${e.id === selfId ? "text-ice" : ""}`}>{e.name}</p>
+            <p className={`mt-4 line-clamp-2 min-h-10 w-full text-sm leading-5 font-semibold ${e.id === selfId ? "text-amber" : ""}`}>{e.name}</p>
             <p className={`font-display font-bold tabular-nums ${first ? "text-2xl" : "text-xl"}`}>{e.main}</p>
             <p className="w-full truncate text-xs text-muted">{e.short}</p>
           </div>
@@ -1854,7 +1855,7 @@ export function RankPanel({ selfId = "" }: { selfId?: string }) {
           <ChevronLeft className="size-5" />
         </button>
         <div className="text-center">
-          <p className="text-xs font-semibold text-ice">Bảng xếp hạng</p>
+          <p className="text-xs font-semibold text-amber">Bảng xếp hạng</p>
           <h2 className="font-display text-2xl font-semibold">{formatMonthLabel(month)}</h2>
         </div>
         <button type="button" className="grid size-11 place-items-center rounded-full border border-line bg-card" onClick={() => setMonth((m) => shiftMonth(m, 1))} aria-label="Tháng sau">
@@ -1875,7 +1876,7 @@ export function RankPanel({ selfId = "" }: { selfId?: string }) {
                 ["earliest", "Vào sớm nhất"],
               ] as const
             ).map(([k, t]) => (
-              <button key={k} type="button" role="tab" aria-selected={board === k} onClick={() => setBoard(k)} className={`h-10 rounded-lg ${board === k ? "bg-ice text-[#1c130c]" : "text-muted"}`}>
+              <button key={k} type="button" role="tab" aria-selected={board === k} onClick={() => setBoard(k)} className={`h-10 rounded-lg ${board === k ? "bg-ice text-night" : "text-muted"}`}>
                 {t}
               </button>
             ))}
@@ -1918,7 +1919,7 @@ export function ManagePanel({ data, onChanged }: { data: WorkspaceData; onChange
             role="tab"
             aria-selected={tab === t.key}
             onClick={() => setTab(t.key)}
-            className={`relative h-11 rounded-lg text-sm font-semibold transition-colors ${tab === t.key ? "bg-ink text-card" : "text-muted"}`}
+            className={`relative h-11 rounded-lg text-sm font-semibold transition-colors ${tab === t.key ? "bg-ice text-night" : "text-muted"}`}
           >
             {t.label}
             {t.badge ? (
@@ -1967,7 +1968,7 @@ function TodayTab({ data, onChanged }: { data: WorkspaceData; onChanged: () => P
                 setRoster(c.key);
                 setMore(SHOW_STEP);
               }}
-              className={`rounded-lg border px-1 py-2 text-center ${roster === c.key ? "border-ink bg-ink/10" : "border-line"}`}
+              className={`rounded-lg border px-1 py-2 text-center ${roster === c.key ? "border-amber bg-ice/20" : "border-line"}`}
             >
               <span className={`block font-display text-3xl leading-none font-semibold tabular-nums ${c.tone}`}>{groups[c.key].length}</span>
               <span className="mt-1 block text-xs text-muted">{c.label}</span>
@@ -2029,7 +2030,7 @@ function ApprovalCard({ data, onChanged }: { data: WorkspaceData; onChanged: () 
 
   if (total === 0) {
     return (
-      <section className="rounded-xl border border-edge bg-card px-4 py-3 text-sm text-muted">
+      <section className="rounded-xl border border-edge bg-card px-3.5 py-2.5 text-sm text-muted">
         Không có gì cần duyệt. Tăng ca từ {data.settings.overtimeMinMinutes} phút sẽ hiện ở đây.
       </section>
     );
@@ -2077,7 +2078,7 @@ function ApprovalCard({ data, onChanged }: { data: WorkspaceData; onChanged: () 
             {row.lat != null && row.lng != null ? (
               <p className="mt-0.5 text-xs">
                 {row.address ?? `Toạ độ ${coordText(row.lat, row.lng)}`}{" "}
-                <a href={mapsUrl(row.lat, row.lng)} target="_blank" rel="noopener noreferrer" className="font-semibold text-ice underline">
+                <a href={mapsUrl(row.lat, row.lng)} target="_blank" rel="noopener noreferrer" className="font-semibold text-amber underline">
                   Mở bản đồ
                 </a>
               </p>
@@ -2291,21 +2292,21 @@ export function SettingsForm({ data, onChanged }: { data: WorkspaceData; onChang
       <div className="grid grid-cols-2 gap-3">
         <label className="space-y-1 text-sm">
           Giờ vào
-          <input className={fieldClass} type="time" value={settings.workStart} onChange={(e) => setSettings({ ...settings, workStart: e.target.value })} />
+          <TimeField value={settings.workStart} onChange={(v) => setSettings({ ...settings, workStart: v })} />
         </label>
         <label className="space-y-1 text-sm">
           Giờ ra
-          <input className={fieldClass} type="time" value={settings.workEnd} onChange={(e) => setSettings({ ...settings, workEnd: e.target.value })} />
+          <TimeField value={settings.workEnd} onChange={(v) => setSettings({ ...settings, workEnd: v })} />
         </label>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <label className="space-y-1 text-sm">
           Nghỉ trưa từ
-          <input className={fieldClass} type="time" value={settings.lunchStart} onChange={(e) => setSettings({ ...settings, lunchStart: e.target.value })} />
+          <TimeField value={settings.lunchStart} onChange={(v) => setSettings({ ...settings, lunchStart: v })} />
         </label>
         <label className="space-y-1 text-sm">
           Nghỉ trưa đến
-          <input className={fieldClass} type="time" value={settings.lunchEnd} onChange={(e) => setSettings({ ...settings, lunchEnd: e.target.value })} />
+          <TimeField value={settings.lunchEnd} onChange={(v) => setSettings({ ...settings, lunchEnd: v })} />
         </label>
       </div>
       <p className="text-xs text-muted">Nhân viên chỉ chấm 2 lần: vào đầu ca và ra cuối ca. Giờ làm = từ giờ vào đến giờ ra, trừ nghỉ trưa (ca 07:30–17:30 nghỉ 11:30–13:30 là 8 giờ).</p>

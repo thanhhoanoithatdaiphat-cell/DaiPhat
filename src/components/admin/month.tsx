@@ -226,7 +226,7 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
         actions={
           mode === "day" ? (
             <div className="flex flex-wrap items-center gap-1">
-              <button type="button" aria-label="Ngày trước" className="grid size-10 place-items-center rounded-lg bg-white/10 hover:bg-white/20" onClick={() => goDay(addDays(day, -1))}>
+              <button type="button" aria-label="Ngày trước" className="grid size-10 place-items-center rounded-lg border border-edge bg-sand text-ink hover:bg-line" onClick={() => goDay(addDays(day, -1))}>
                 <ChevronLeft className="size-5" />
               </button>
               <input
@@ -235,22 +235,22 @@ export function MonthView({ ctx }: { ctx: AdminCtx }) {
                 value={day}
                 max={vnDateKey()}
                 onChange={(e) => e.target.value && goDay(e.target.value)}
-                className="h-10 rounded-lg bg-white/10 px-3 text-center font-display text-lg font-bold text-[#fff3d6] [color-scheme:dark]"
+                className="h-10 rounded-lg border border-edge bg-sand px-3 text-center font-display text-lg font-bold text-ink [color-scheme:light]"
               />
-              <button type="button" aria-label="Ngày sau" disabled={day >= vnDateKey()} className="grid size-10 place-items-center rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30" onClick={() => goDay(addDays(day, 1))}>
+              <button type="button" aria-label="Ngày sau" disabled={day >= vnDateKey()} className="grid size-10 place-items-center rounded-lg border border-edge bg-sand text-ink hover:bg-line disabled:opacity-40" onClick={() => goDay(addDays(day, 1))}>
                 <ChevronRight className="size-5" />
               </button>
-              <button type="button" disabled={day === vnDateKey()} className="ml-1 h-10 rounded-lg bg-white/10 px-3 text-sm font-semibold hover:bg-white/20 disabled:opacity-30" onClick={() => goDay(vnDateKey())}>
+              <button type="button" disabled={day === vnDateKey()} className="ml-1 h-10 rounded-lg border border-edge bg-sand px-3 text-sm font-semibold text-ink hover:bg-line disabled:opacity-40" onClick={() => goDay(vnDateKey())}>
                 Hôm nay
               </button>
             </div>
           ) : (
           <div className="flex items-center gap-1">
-            <button type="button" aria-label="Tháng trước" className="grid size-10 place-items-center rounded-lg bg-white/10 hover:bg-white/20" onClick={() => setMonth((m) => shiftMonth(m, -1))}>
+            <button type="button" aria-label="Tháng trước" className="grid size-10 place-items-center rounded-lg border border-edge bg-sand text-ink hover:bg-line" onClick={() => setMonth((m) => shiftMonth(m, -1))}>
               <ChevronLeft className="size-5" />
             </button>
             <p className="min-w-36 text-center font-display text-2xl font-bold capitalize">{formatMonthLabel(month)}</p>
-            <button type="button" aria-label="Tháng sau" className="grid size-10 place-items-center rounded-lg bg-white/10 hover:bg-white/20" onClick={() => setMonth((m) => shiftMonth(m, 1))}>
+            <button type="button" aria-label="Tháng sau" className="grid size-10 place-items-center rounded-lg border border-edge bg-sand text-ink hover:bg-line" onClick={() => setMonth((m) => shiftMonth(m, 1))}>
               <ChevronRight className="size-5" />
             </button>
           </div>

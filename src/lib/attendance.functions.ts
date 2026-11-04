@@ -1020,22 +1020,30 @@ export const getPunchPhoto = createServerFn({ method: "POST" })
     return n;
   })
   .middleware([authMiddleware])
-  .handler(async ({ context, data: id }): Promise<{ photo: string | null }> => {
+  .handler(async ({ context, data: id }): Promise<{ photo: string | null; lat: number | null; lng: number | null; address: string | null }> => {
     const profile = await requireProfile(context.userId);
     const sql = await getSql();
     const rows = await sql<{
       photo_data: string | null;
       user_id: string;
       company_id: string;
+      lat: number | null;
+      lng: number | null;
+      address: string | null;
     }>`
-      select photo_data, user_id, company_id from attendances where id = ${id}
+      select photo_data, user_id, company_id, lat, lng, address from attendances where id = ${id}
     `;
     const row = rows[0];
     if (!row || row.company_id !== profile.companyId) throw new Error("Không tìm thấy ảnh");
     if (row.user_id !== profile.userId && !canReview(profile.role)) {
       throw new Error("Không có quyền xem ảnh này");
     }
-    return { photo: row.photo_data };
+    return {
+      photo: row.photo_data,
+      lat: row.lat == null ? null : Number(row.lat),
+      lng: row.lng == null ? null : Number(row.lng),
+      address: row.address ?? null,
+    };
   });
 
 export const listCorrections = createServerFn({ method: "GET" })

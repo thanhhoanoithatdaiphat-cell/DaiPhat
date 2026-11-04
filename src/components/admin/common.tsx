@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { getPunchPhoto } from "@/lib/attendance.functions";
+import { PunchMapLink, type PunchWhere } from "@/components/punch-map-link";
 
 /** Bấm hoặc chạm ra ngoài vùng `ref` thì gọi onAway (dùng để đóng bảng chi tiết đang mở). */
 export function useClickAway(ref: RefObject<HTMLElement | null>, onAway: () => void, enabled: boolean) {
@@ -71,20 +72,36 @@ export function Card({ title, action, children, className = "" }: { title?: stri
 
 export function PunchPhoto({ id }: { id: number }) {
   const [photo, setPhoto] = useState<string | null | undefined>(undefined);
-  useEffect(() => setPhoto(undefined), [id]);
+  const [where, setWhere] = useState<PunchWhere | null>(null);
+  useEffect(() => {
+    setPhoto(undefined);
+    setWhere(null);
+  }, [id]);
   if (photo === undefined) {
     return (
       <button
         type="button"
         className="text-sm font-semibold underline"
-        onClick={() => void getPunchPhoto({ data: id }).then((r) => setPhoto(r.photo)).catch(() => setPhoto(null))}
+        onClick={() =>
+          void getPunchPhoto({ data: id })
+            .then((r) => {
+              setWhere({ lat: r.lat, lng: r.lng, address: r.address });
+              setPhoto(r.photo);
+            })
+            .catch(() => setPhoto(null))
+        }
       >
         Xem ảnh chấm công
       </button>
     );
   }
   if (!photo) return <p className="text-sm text-muted">Không có ảnh</p>;
-  return <img src={photo} alt="Ảnh chấm công" className="h-auto w-full rounded-md" />;
+  return (
+    <div>
+      <img src={photo} alt="Ảnh chấm công" className="h-auto w-full rounded-md" />
+      <PunchMapLink where={where} />
+    </div>
+  );
 }
 
 /** Banner tối đầu mỗi trang quản trị: tiêu đề, dòng phụ, nút thao tác và (tuỳ chọn) hàng số liệu. */

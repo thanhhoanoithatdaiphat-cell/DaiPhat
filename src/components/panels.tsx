@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, Crown, MapPin } from "lucide-react";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
 import { countableOvertime, workedMinutes } from "@/lib/month-grid";
 import { CameraSheet } from "@/components/camera-sheet";
+import { PunchMapLink, type PunchWhere } from "@/components/punch-map-link";
 import { PermissionGuide } from "@/components/permission-guide";
 import { queryPerm, type PermKind } from "@/lib/permissions";
 import { errorText, fieldClass, primaryBtn, secondaryBtn } from "@/components/ui";
@@ -1002,6 +1003,7 @@ function PasswordFold() {
 
 function PunchLine({ row, settings }: { row: PunchRow; settings: Settings }) {
   const [photo, setPhoto] = useState<string | null>(null);
+  const [where, setWhere] = useState<PunchWhere | null>(null);
   return (
     <article className="rounded-md border border-line border-l-4 border-l-ink bg-card px-4 py-3">
       <div className="flex items-center justify-between gap-3">
@@ -1025,13 +1027,23 @@ function PunchLine({ row, settings }: { row: PunchRow; settings: Settings }) {
           type="button"
           className="mt-2 text-sm font-semibold text-ink"
           onClick={() => {
-            void getPunchPhoto({ data: row.id }).then((res) => setPhoto(res.photo)).catch(() => setPhoto(null));
+            void getPunchPhoto({ data: row.id })
+              .then((res) => {
+                setWhere({ lat: res.lat, lng: res.lng, address: res.address });
+                setPhoto(res.photo);
+              })
+              .catch(() => setPhoto(null));
           }}
         >
           Xem ảnh
         </button>
       ) : null}
-      {photo ? <img src={photo} alt="Ảnh chấm công" className="mt-3 h-auto w-full rounded-md" /> : null}
+      {photo ? (
+        <>
+          <img src={photo} alt="Ảnh chấm công" className="mt-3 h-auto w-full rounded-md" />
+          <PunchMapLink where={where} />
+        </>
+      ) : null}
     </article>
   );
 }
@@ -2024,6 +2036,7 @@ function ApprovalCard({ data, onChanged }: { data: WorkspaceData; onChanged: () 
   const [all, setAll] = useState(false);
   const [photoFor, setPhotoFor] = useState<number | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
+  const [photoWhere, setPhotoWhere] = useState<PunchWhere | null>(null);
   const ot = data.overtimePending;
   const off = data.offsiteToday;
   const shownOt = all ? ot : ot.slice(0, 3);
@@ -2105,13 +2118,24 @@ function ApprovalCard({ data, onChanged }: { data: WorkspaceData; onChanged: () 
                   }
                   setPhotoFor(row.id);
                   setPhoto(null);
-                  void getPunchPhoto({ data: row.id }).then((res) => setPhoto(res.photo)).catch(() => setPhoto(null));
+                  setPhotoWhere(null);
+                  void getPunchPhoto({ data: row.id })
+                    .then((res) => {
+                      setPhotoWhere({ lat: res.lat, lng: res.lng, address: res.address });
+                      setPhoto(res.photo);
+                    })
+                    .catch(() => setPhoto(null));
                 }}
               >
                 {photoFor === row.id ? "Ẩn ảnh" : "Xem ảnh"}
               </button>
             ) : null}
-            {photoFor === row.id && photo ? <img src={photo} alt="Ảnh chấm công" className="mt-2 h-auto w-full rounded-lg" /> : null}
+            {photoFor === row.id && photo ? (
+              <>
+                <img src={photo} alt="Ảnh chấm công" className="mt-2 h-auto w-full rounded-lg" />
+                <PunchMapLink where={photoWhere} />
+              </>
+            ) : null}
           </li>
         ))}
       </ul>

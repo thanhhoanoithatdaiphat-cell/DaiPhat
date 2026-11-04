@@ -27,12 +27,17 @@ function compressFrame(video: HTMLVideoElement): string | null {
 export function CameraSheet({
   onShot,
   onClose,
+  onDenied,
 }: {
   onShot: (photo: string) => void;
   onClose: () => void;
+  /** Gọi khi quyền camera bị từ chối, để màn chấm công mở hướng dẫn bật quyền. */
+  onDenied?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const deniedRef = useRef(onDenied);
+  deniedRef.current = onDenied;
   const [error, setError] = useState("");
   const [facing, setFacing] = useState<"user" | "environment">("user");
 
@@ -55,8 +60,18 @@ export function CameraSheet({
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
         }
-      } catch {
-        if (!cancelled) setError("Không mở được camera. Hãy cho phép quyền camera rồi thử lại.");
+      } catch (err) {
+        if (cancelled) return;
+        const name = err instanceof DOMException ? err.name : "";
+        if ((name === "NotAllowedError" || name === "SecurityError") && deniedRef.current) {
+          deniedRef.current();
+        } else if (name === "NotFoundError" || name === "OverconstrainedError") {
+          setError("Máy không có camera phù hợp. Thử bấm “Camera sau/trước”.");
+        } else if (name === "NotReadableError") {
+          setError("Camera đang được app khác dùng. Đóng app đó rồi thử lại.");
+        } else {
+          setError("Không mở được camera. Hãy cho phép quyền camera rồi thử lại.");
+        }
       }
     })();
     return () => {

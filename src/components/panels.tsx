@@ -5,6 +5,8 @@ import { ChevronLeft, ChevronRight, Crown, MapPin } from "lucide-react";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
 import { countableOvertime, workedMinutes } from "@/lib/month-grid";
 import { CameraSheet } from "@/components/camera-sheet";
+import { PermissionGuide } from "@/components/permission-guide";
+import { queryPerm, type PermKind } from "@/lib/permissions";
 import { errorText, fieldClass, primaryBtn, secondaryBtn } from "@/components/ui";
 import { InviteCodeCard } from "@/components/invite-card";
 import { AddEmployees } from "@/components/add-employees";
@@ -148,8 +150,17 @@ type GeoState =
   | { status: "ok"; lat: number; lng: number; accuracy: number };
 
 /** Theo dõi GPS liên tục để thẻ vị trí hiện đúng khoảng cách tới điểm chấm công. */
-function useGeoWatch(): GeoState {
+function useGeoWatch(): { geo: GeoState; restart: () => void } {
   const [geo, setGeo] = useState<GeoState>({ status: "wait" });
+  const [nonce, setNonce] = useState(0);
+  useEffect(() => {
+    // Người dùng sang Cài đặt bật quyền rồi quay lại: đăng ký lại để thẻ vị trí tự hết báo lỗi.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") setNonce((n) => n + 1);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
   useEffect(() => {
     if (!navigator.geolocation) {
       setGeo({ status: "unsupported" });
@@ -161,8 +172,8 @@ function useGeoWatch(): GeoState {
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 },
     );
     return () => navigator.geolocation.clearWatch(id);
-  }, []);
-  return geo;
+  }, [nonce]);
+  return { geo, restart: () => setNonce((n) => n + 1) };
 }
 
 function liveWorkedMinutes(rows: PunchRow[], nowMs: number, settings: Settings): number {
@@ -314,7 +325,9 @@ export function PunchPanel({
   const primary: "in" | "out" = last?.type === "in" ? "out" : "in";
   // Mỗi ngày chỉ một lượt vào và một lượt ra: đủ cả hai thì khóa nút, tránh bấm nhầm.
   const dayDone = data.today.some((row) => row.type === "in") && data.today.some((row) => row.type === "out");
-  const geo = useGeoWatch();
+  const { geo, restart: restartGeo } = useGeoWatch();
+  const guideShown = useRef(false);
+  const [guide, setGuide] = useState<{ need: PermKind[]; again: boolean; type: "in" | "out" } | null>(null);
   const [summary, setSummary] = useState<MySummary | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -391,6 +404,7 @@ export function PunchPanel({
     try {
       const next = await punch({ data: { type, lat, lng, photo, locationSource, accuracy } });
       setResult(next);
+      if (next.ok) guideShown.current = false;
       if (next.ok) setSuccess({ type, result: next, withPhoto: Boolean(photo), manual: locationSource === "manual" });
       setGeoFailed(null);
       setPendingPhoto("");
@@ -402,6 +416,33 @@ export function PunchPanel({
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * Điểm vào của nút chấm công. Chỉ khi trình duyệt báo quyền ĐANG BỊ CHẶN mới hiện hướng dẫn;
+   * người đã cấp quyền (hoặc chưa được hỏi lần nào) đi thẳng như cũ, không thêm bước nào.
+   */
+  async function startPunch(type: "in" | "out", again = guideShown.current) {
+    const [g, c] = await Promise.all([queryPerm("geolocation"), queryPerm("camera")]);
+    const blocked: PermKind[] = [];
+    if (g === "denied") blocked.push("geolocation");
+    if (c === "denied") blocked.push("camera");
+    if (blocked.length > 0) {
+      setError("");
+      setGuide({ need: blocked, again, type });
+      return;
+    }
+    locateFirst(type);
+  }
+
+  function retryAfterGuide() {
+    const g = guide;
+    guideShown.current = true;
+    setGuide(null);
+    restartGeo();
+    if (!g) return;
+    if (pendingPhoto && !g.need.includes("camera")) locateThenSubmit(g.type, pendingPhoto);
+    else void startPunch(g.type, true);
   }
 
   function locateFirst(type: "in" | "out") {
@@ -427,10 +468,18 @@ export function PunchPanel({
         setCameraFor(type);
         setBusy(false);
       },
-      () => {
-        setGeoFailed(type);
+      (err) => {
         setBusy(false);
-        setError("Chưa lấy được GPS. Bật định vị rồi thử lại.");
+        if (err.code === 1) {
+          setGuide({ need: ["geolocation"], again: guideShown.current, type });
+          return;
+        }
+        setGeoFailed(type);
+        setError(
+          err.code === 2
+            ? "Điện thoại đang tắt Định vị (GPS) hoặc không có tín hiệu. Bật GPS rồi thử lại."
+            : "Chưa lấy được GPS. Ra nơi thoáng hơn rồi thử lại.",
+        );
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
     );
@@ -458,11 +507,19 @@ export function PunchPanel({
         }
         void submit(type, pos.coords.latitude, pos.coords.longitude, photo, "gps");
       },
-      () => {
+      (err) => {
         setPendingPhoto(photo);
-        setGeoFailed(type);
         setBusy(false);
-        setError("Chưa lấy được GPS. Bật định vị rồi thử lại.");
+        if (err.code === 1) {
+          setGuide({ need: ["geolocation"], again: guideShown.current, type });
+          return;
+        }
+        setGeoFailed(type);
+        setError(
+          err.code === 2
+            ? "Điện thoại đang tắt Định vị (GPS) hoặc không có tín hiệu. Bật GPS rồi thử lại."
+            : "Chưa lấy được GPS. Ra nơi thoáng hơn rồi thử lại.",
+        );
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
     );
@@ -497,7 +554,11 @@ export function PunchPanel({
               : active.length === 0
                 ? "Chưa có điểm chấm công đang bật"
                 : geo.status === "denied"
-                  ? "Hãy bật định vị cho trình duyệt"
+                  ? (
+                    <button type="button" className="underline" onClick={() => setGuide({ need: ["geolocation"], again: false, type: primary })}>
+                      Chưa có quyền vị trí · Xem cách bật
+                    </button>
+                  )
                   : geo.status === "unsupported"
                     ? "Máy không hỗ trợ GPS"
                     : "Đang xác định vị trí của bạn…"}
@@ -519,7 +580,7 @@ export function PunchPanel({
         <button
           type="button"
           disabled={busy || dayDone || (!data.settings.allowOffsite && active.length === 0)}
-          onClick={() => locateFirst(primary)}
+          onClick={() => void startPunch(primary)}
           aria-label={busy ? "Đang ghi" : dayDone ? "Đã chấm đủ vào và ra hôm nay" : primary === "in" ? "Vào ca" : "Ra ca"}
           className="punch-float disabled:opacity-40"
         >
@@ -609,6 +670,12 @@ export function PunchPanel({
       {cameraFor ? (
         <CameraSheet
           onClose={() => setCameraFor(null)}
+          onDenied={() => {
+            const type = cameraFor;
+            setCameraFor(null);
+            setPendingLoc(null);
+            setGuide({ need: ["camera"], again: guideShown.current, type });
+          }}
           onShot={(photo) => {
             const type = cameraFor;
             setCameraFor(null);
@@ -621,6 +688,7 @@ export function PunchPanel({
           }}
         />
       ) : null}
+      {guide ? <PermissionGuide need={guide.need} again={guide.again} onRetry={retryAfterGuide} onClose={() => setGuide(null)} /> : null}
     </div>
     <TodayPunchers selfId={data.profile.userId} lateFrom={data.settings.lateMinutes} refreshKey={data.today.length} />
     </>

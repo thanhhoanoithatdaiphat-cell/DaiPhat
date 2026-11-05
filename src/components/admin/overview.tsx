@@ -80,6 +80,11 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
     const ids = new Set(inScope.map((p) => p.userId));
     return groupOffsite(data.offsiteToday.filter((r) => r.userId && ids.has(r.userId)), people);
   }, [data.offsiteToday, inScope, people]);
+  const gpsFlagGroups = useMemo(() => {
+    const ids = new Set(inScope.map((p) => p.userId));
+    return groupOffsite((data.gpsFlagsToday ?? []).filter((r) => r.userId && ids.has(r.userId)), people);
+  }, [data.gpsFlagsToday, inScope, people]);
+  const gpsFlagCount = useMemo(() => gpsFlagGroups.reduce((n, g) => n + g.punches.length, 0), [gpsFlagGroups]);
 
   const stats: { id: Filter; label: string; value: number; tone: string }[] = [
     { id: "working", label: "Đang làm", value: working.length, tone: "text-ice" },
@@ -242,12 +247,13 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
           >
             <p className="text-xs text-[#fff3d6]/80">Ngoài điểm</p>
             <p className={`font-display text-5xl leading-none font-bold tabular-nums ${offsiteGroups.length ? "text-[#ffc247]" : "text-[#fff3d6]"}`}>{offsiteGroups.length}</p>
+            {gpsFlagCount ? <span className="mt-1 block text-[11px] font-semibold text-[#ffc247]">{gpsFlagCount} lượt nghi ngờ GPS</span> : null}
             <span className={`mt-1.5 block h-0.5 w-8 ${offsiteOpen ? "bg-ice" : "bg-transparent"}`} />
           </button>
         </div>
       </section>
 
-      {offsiteOpen ? <OffsiteDrawer groups={offsiteGroups} allowOffsite={data.settings.allowOffsite} onClose={() => setOffsiteOpen(false)} /> : null}
+      {offsiteOpen ? <OffsiteDrawer groups={offsiteGroups} flagged={gpsFlagGroups} allowOffsite={data.settings.allowOffsite} onClose={() => setOffsiteOpen(false)} /> : null}
 
       {message ? <p className="rounded-lg bg-sand px-4 py-2 text-sm text-ink">{message}</p> : null}
 

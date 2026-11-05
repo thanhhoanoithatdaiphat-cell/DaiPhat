@@ -70,7 +70,7 @@ export function Card({ title, action, children, className = "" }: { title?: stri
   );
 }
 
-export function PunchPhoto({ id }: { id: number }) {
+export function PunchPhoto({ id, showMap = true }: { id: number; showMap?: boolean }) {
   const [photo, setPhoto] = useState<string | null | undefined>(undefined);
   const [where, setWhere] = useState<PunchWhere | null>(null);
   useEffect(() => {
@@ -85,7 +85,7 @@ export function PunchPhoto({ id }: { id: number }) {
         onClick={() =>
           void getPunchPhoto({ data: id })
             .then((r) => {
-              setWhere({ lat: r.lat, lng: r.lng, address: r.address });
+              setWhere({ lat: r.lat, lng: r.lng, address: r.address, accuracy: r.accuracy, flags: r.flags });
               setPhoto(r.photo);
             })
             .catch(() => setPhoto(null))
@@ -99,7 +99,7 @@ export function PunchPhoto({ id }: { id: number }) {
   return (
     <div>
       <img src={photo} alt="Ảnh chấm công" className="h-auto w-full rounded-md" />
-      <PunchMapLink where={where} />
+      {showMap ? <PunchMapLink where={where} /> : null}
     </div>
   );
 }

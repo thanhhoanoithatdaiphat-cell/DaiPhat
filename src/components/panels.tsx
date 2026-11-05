@@ -509,7 +509,7 @@ export function PunchPanel({
           setError(`GPS không chính xác (sai số ~${Math.round(acc)} m). Ra nơi thoáng hơn rồi thử lại.`);
           return;
         }
-        void submit(type, pos.coords.latitude, pos.coords.longitude, photo, "gps");
+        void submit(type, pos.coords.latitude, pos.coords.longitude, photo, "gps", pos.coords.accuracy);
       },
       (err) => {
         setPendingPhoto(photo);
@@ -2409,6 +2409,13 @@ export function SettingsForm({ data, onChanged }: { data: WorkspaceData; onChang
       <label className="flex items-center gap-3 text-sm">
         <input type="checkbox" checked={settings.deviceLock} onChange={(e) => setSettings({ ...settings, deviceLock: e.target.checked })} />
         Mỗi tài khoản chỉ dùng trên một máy (chống chấm hộ)
+      </label>
+      <label className="flex items-start gap-3 text-sm">
+        <input className="mt-1" type="checkbox" checked={settings.gpsGuard} onChange={(e) => setSettings({ ...settings, gpsGuard: e.target.checked })} />
+        <span>
+          Chặn chấm công khi GPS có dấu hiệu giả rõ ràng
+          <span className="block text-xs text-muted">Tắt: chỉ ghi lại để quản trị xem trong mục Ngoài điểm. Nên xem vài ngày rồi mới bật.</span>
+        </span>
       </label>
       {error ? <p className="text-sm text-clay">{error}</p> : null}
       {saved ? <p className="text-sm text-ok">Đã lưu cài đặt.</p> : null}

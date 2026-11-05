@@ -56,6 +56,7 @@ const DEFAULT_SETTINGS: Settings = {
   requirePhoto: true,
   allowOffsite: false,
   deviceLock: true,
+  gpsGuard: false,
 };
 
 type ProfileDb = {
@@ -131,6 +132,7 @@ function readSettings(raw: unknown): Settings {
     requirePhoto: obj.requirePhoto !== false,
     allowOffsite: obj.allowOffsite === true,
     deviceLock: obj.deviceLock !== false,
+    gpsGuard: obj.gpsGuard === true,
   };
 }
 
@@ -370,6 +372,7 @@ function mapPunch(row: {
   lat?: number | null;
   lng?: number | null;
   address?: string | null;
+  gps_flags?: string | null;
 }): PunchRow {
   return {
     id: Number(row.id),
@@ -389,6 +392,7 @@ function mapPunch(row: {
     lat: row.lat == null ? null : Number(row.lat),
     lng: row.lng == null ? null : Number(row.lng),
     address: row.address ?? null,
+    gpsFlags: row.gps_flags ? row.gps_flags.split(",").filter(Boolean) : [],
   };
 }
 
@@ -571,9 +575,10 @@ export const getWorkspace = createServerFn({ method: "POST" })
         lat: number | null;
         lng: number | null;
         address: string | null;
+        gps_flags: string | null;
       }>`
         select a.id, a.type, a.punched_at, a.status, a.nearest_name, a.distance_meters,
-               a.location_source, a.offsite, a.lat, a.lng, a.address,
+               a.location_source, a.offsite, a.lat, a.lng, a.address, a.gps_flags,
                (a.photo_data is not null and a.photo_data <> '') as has_photo,
                a.user_id, p.full_name
         from attendances a
@@ -586,6 +591,41 @@ export const getWorkspace = createServerFn({ method: "POST" })
       `;
       return alerts.map(mapPunch);
     }
+    })();
+    // Lượt chấm TRONG điểm nhưng có dấu hiệu GPS bất thường (lượt ngoài điểm đã nằm ở danh sách trên).
+    const gpsFlagsTodayP = (async (): Promise<PunchRow[]> => {
+      if (!canReview(profile.role)) return [];
+      const rows = await sql<{
+        id: number;
+        type: "in" | "out";
+        punched_at: unknown;
+        status: "valid" | "corrected";
+        nearest_name: string | null;
+        distance_meters: number | null;
+        location_source: "gps" | "manual";
+        has_photo: boolean;
+        offsite: boolean;
+        user_id: string;
+        full_name: string;
+        lat: number | null;
+        lng: number | null;
+        address: string | null;
+        gps_flags: string | null;
+      }>`
+        select a.id, a.type, a.punched_at, a.status, a.nearest_name, a.distance_meters,
+               a.location_source, a.offsite, a.lat, a.lng, a.address, a.gps_flags,
+               (a.photo_data is not null and a.photo_data <> '') as has_photo,
+               a.user_id, p.full_name
+        from attendances a
+        join profiles p on p.user_id = a.user_id
+        where a.company_id = ${profile.companyId}
+          and a.offsite = false
+          and a.gps_flags <> ''
+          and a.punched_at >= ${dayStart}::timestamptz
+          and a.punched_at < ${dayEnd}::timestamptz
+        order by a.punched_at desc
+      `;
+      return rows.map(mapPunch);
     })();
     const reviewP = (async (): Promise<{ lateToday: PunchRow[]; overtimePending: PunchRow[] }> => {
     if (!canReview(profile.role)) return { lateToday: [], overtimePending: [] };
@@ -650,7 +690,7 @@ export const getWorkspace = createServerFn({ method: "POST" })
       return { lateToday: lateRows.map(mapPunch), overtimePending: otRows.map(mapPunch) };
     }
     })();
-    const [locationRows, todayRows, pending, teamToday, offsiteToday, review] = await Promise.all([locationRowsP, todayRowsP, pendingP, teamTodayP, offsiteTodayP, reviewP]);
+    const [locationRows, todayRows, pending, teamToday, offsiteToday, gpsFlagsToday, review] = await Promise.all([locationRowsP, todayRowsP, pendingP, teamTodayP, offsiteTodayP, gpsFlagsTodayP, reviewP]);
     const locations = locationRows.map(mapLocation);
     const { lateToday, overtimePending } = review;
     return {
@@ -662,6 +702,7 @@ export const getWorkspace = createServerFn({ method: "POST" })
       teamToday,
       pendingCount: Number(pending[0]?.n ?? 0),
       offsiteToday,
+      gpsFlagsToday,
       lateToday,
       overtimePending,
     };
@@ -857,6 +898,11 @@ export const whereAmI = createServerFn({ method: "POST" })
     return { address: await reverseGeocode(data.lat, data.lng) };
   });
 
+/** Sai số GPS (mét) tới mức này coi là "GPS thật sự chính xác": toạ độ trùng khít ở mức này gần như không thể xảy ra tự nhiên. */
+const GPS_GRADE_M = 10;
+/** Các dấu hiệu đủ rõ để chặn khi công ty bật "chặn GPS giả". Dấu hiệu nhẹ (sai số bất thường, sát mép vùng) chỉ ghi lại. */
+const GPS_STRONG = ["no_accuracy", "round_coords", "teleport", "same_self", "same_other"];
+
 export const punch = createServerFn({ method: "POST" })
   .validator(
     (input: {
@@ -881,7 +927,7 @@ export const punch = createServerFn({ method: "POST" })
       if (accuracy != null && (!Number.isFinite(accuracy) || accuracy < 0 || accuracy > 5000)) {
         throw new Error("Sai số GPS không hợp lệ");
       }
-      if (accuracy != null && accuracy > 200) {
+      if (accuracy != null && accuracy > 150) {
         throw new Error(`GPS không chính xác (sai số ~${Math.round(accuracy)} m). Ra nơi thoáng hơn rồi thử lại.`);
       }
       return input;
@@ -908,10 +954,12 @@ export const punch = createServerFn({ method: "POST" })
     const todayBounds = dayRange(vnDateKey());
     const punchedAt = new Date().toISOString();
     // Các truy vấn không phụ thuộc nhau chạy cùng lúc (trước đây chạy nối đuôi, mỗi cái chờ cái trước).
-    const [recent, dayRows, locs, isHoliday] = await Promise.all([
-      sql<{ punched_at: unknown }>`
-        select punched_at from attendances
-        where user_id = ${profile.userId}
+    const gradeFix = data.accuracy != null && Number(data.accuracy) <= GPS_GRADE_M;
+    const [prev, dayRows, locs, isHoliday, sameRows] = await Promise.all([
+      // Lượt chấm gần nhất có toạ độ: dùng cho chặn bấm lặp (60 giây) và phát hiện "nhảy vị trí" bất thường.
+      sql<{ punched_at: unknown; lat: number; lng: number }>`
+        select punched_at, lat, lng from attendances
+        where user_id = ${profile.userId} and lat is not null
         order by punched_at desc
         limit 1
       `,
@@ -928,12 +976,22 @@ export const punch = createServerFn({ method: "POST" })
         where company_id = ${profile.companyId} and is_active = true
       `,
       vnWeekday(punchedAt) === 0 ? Promise.resolve(true) : isHolidayDay(profile.companyId, vnDateKey(punchedAt)),
+      // Toạ độ trùng khít (đến từng số lẻ) với lượt GPS sai số nhỏ khác trong 30 ngày qua, của chính người này hoặc người khác.
+      gradeFix
+        ? sql<{ user_id: string }>`
+            select user_id from attendances
+            where lat = ${data.lat}::double precision and lng = ${data.lng}::double precision
+              and gps_accuracy <= ${GPS_GRADE_M}
+              and company_id = ${profile.companyId}
+              and punched_at > now() - interval '30 days'
+          `
+        : Promise.resolve([] as { user_id: string }[]),
     ]);
     const countedToday = dayRows.filter((row) => row.status === "valid" || row.status === "corrected");
     const insToday = countedToday.filter((row) => row.type === "in").length;
     const outsToday = countedToday.filter((row) => row.type === "out").length;
-    if (recent[0]) {
-      const delta = Date.now() - new Date(stamp(recent[0].punched_at)).getTime();
+    if (prev[0]) {
+      const delta = Date.now() - new Date(stamp(prev[0].punched_at)).getTime();
       if (delta >= 0 && delta < 60_000) {
         throw new Error("Bạn vừa chấm công. Đợi khoảng một phút rồi thử lại.");
       }
@@ -955,16 +1013,38 @@ export const punch = createServerFn({ method: "POST" })
     if (locs.length === 0 && !settings.allowOffsite) {
       throw new Error("Chưa có điểm chấm công nào đang bật. Nhờ quản trị thêm vị trí.");
     }
-    let best: { name: string; dist: number; inside: boolean } | null = null;
+    let best: { name: string; dist: number; inside: boolean; radius: number } | null = null;
     for (const loc of locs) {
       const dist = haversine(data.lat, data.lng, Number(loc.lat), Number(loc.lng));
       const inside = dist <= Number(loc.radius_meters);
       if (!best || (inside && !best.inside) || (inside === best.inside && dist < best.dist)) {
-        best = { name: loc.name, dist, inside };
+        best = { name: loc.name, dist, inside, radius: Number(loc.radius_meters) };
       }
     }
     const distanceMeters = best ? Math.round(best.dist) : 0;
     const offsite = !best?.inside;
+    // Dấu hiệu GPS bất thường (xem GPS_STRONG). Luôn ghi lại; chỉ chặn khi quản trị bật "chặn GPS giả".
+    const acc = data.accuracy == null ? null : Number(data.accuracy);
+    const gpsFlags: string[] = [];
+    if (acc == null) gpsFlags.push("no_accuracy");
+    else if (acc < 2) gpsFlags.push("acc_low");
+    const roundish = (v: number) => Math.abs(v * 1e4 - Math.round(v * 1e4)) < 1e-6;
+    if (roundish(data.lat) && roundish(data.lng)) gpsFlags.push("round_coords");
+    if (prev[0]) {
+      const dt = Date.now() - new Date(stamp(prev[0].punched_at)).getTime();
+      if (dt > 0 && dt <= 3 * 3_600_000) {
+        const km = haversine(Number(prev[0].lat), Number(prev[0].lng), data.lat, data.lng) / 1000;
+        if (km > 3 && km / (dt / 3_600_000) > 120) gpsFlags.push(`teleport:${km.toFixed(1)}:${Math.max(1, Math.round(dt / 60_000))}`);
+      }
+    }
+    if (sameRows.filter((r) => r.user_id === profile.userId).length >= 2) gpsFlags.push("same_self");
+    if (sameRows.some((r) => r.user_id !== profile.userId)) gpsFlags.push("same_other");
+    if (best?.inside && acc != null && acc > 50 && best.dist + acc > best.radius) gpsFlags.push("edge_uncertain");
+    if (settings.gpsGuard && gpsFlags.some((flag) => GPS_STRONG.includes(flag.split(":")[0]))) {
+      throw new Error(
+        "Vị trí GPS có dấu hiệu bất thường (ví dụ dùng ứng dụng giả vị trí, hoặc vị trí nhảy xa so với lần chấm trước). Tắt ứng dụng giả vị trí, bật GPS chính xác cao rồi thử lại. Nếu vẫn bị chặn, hãy báo quản trị.",
+      );
+    }
     // Chấm ngoài điểm: báo đúng vị trí người chấm (địa chỉ), không báo khoảng cách theo bán kính.
     const address = offsite ? await reverseGeocode(data.lat, data.lng) : null;
     if (offsite && !settings.allowOffsite) {
@@ -1018,12 +1098,13 @@ export const punch = createServerFn({ method: "POST" })
       insert into attendances (
         user_id, company_id, type, punched_at, lat, lng, photo_data, status,
         nearest_name, distance_meters, location_source, offsite,
-        late_minutes, overtime_minutes, overtime_status, address
+        late_minutes, overtime_minutes, overtime_status, address, gps_accuracy, gps_flags
       )
       select
         ${profile.userId}::text, ${profile.companyId}::text, ${data.type}::text, ${punchedAt}::timestamptz, ${data.lat}::double precision, ${data.lng}::double precision,
         ${photo || null}::text, 'valid', ${best?.name ?? null}::text, ${best ? distanceMeters : null}::integer,
-        ${data.locationSource}::text, ${offsite}::boolean, ${lateMinutes}::integer, ${overtimeMinutes}::integer, ${overtimeStatus}::text, ${address}::text
+        ${data.locationSource}::text, ${offsite}::boolean, ${lateMinutes}::integer, ${overtimeMinutes}::integer, ${overtimeStatus}::text, ${address}::text,
+        ${acc == null ? null : Math.round(acc)}::integer, ${gpsFlags.join(",")}::text
       where not exists (
         select 1 from attendances
         where user_id = ${profile.userId}
@@ -1069,7 +1150,7 @@ export const getPunchPhoto = createServerFn({ method: "POST" })
     return n;
   })
   .middleware([authMiddleware])
-  .handler(async ({ context, data: id }): Promise<{ photo: string | null; lat: number | null; lng: number | null; address: string | null }> => {
+  .handler(async ({ context, data: id }): Promise<{ photo: string | null; lat: number | null; lng: number | null; address: string | null; accuracy: number | null; flags: string[] }> => {
     const profile = await requireProfile(context.userId);
     const sql = await getSql();
     const rows = await sql<{
@@ -1079,8 +1160,10 @@ export const getPunchPhoto = createServerFn({ method: "POST" })
       lat: number | null;
       lng: number | null;
       address: string | null;
+      gps_accuracy: number | null;
+      gps_flags: string | null;
     }>`
-      select photo_data, user_id, company_id, lat, lng, address from attendances where id = ${id}
+      select photo_data, user_id, company_id, lat, lng, address, gps_accuracy, gps_flags from attendances where id = ${id}
     `;
     const row = rows[0];
     if (!row || row.company_id !== profile.companyId) throw new Error("Không tìm thấy ảnh");
@@ -1092,6 +1175,9 @@ export const getPunchPhoto = createServerFn({ method: "POST" })
       lat: row.lat == null ? null : Number(row.lat),
       lng: row.lng == null ? null : Number(row.lng),
       address: row.address ?? null,
+      // Sai số GPS và dấu hiệu bất thường chỉ dành cho quản trị và người duyệt, nhân viên không thấy của chính mình.
+      accuracy: canReview(profile.role) && row.gps_accuracy != null ? Number(row.gps_accuracy) : null,
+      flags: canReview(profile.role) && row.gps_flags ? row.gps_flags.split(",").filter(Boolean) : [],
     };
   });
 

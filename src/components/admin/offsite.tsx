@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { ExternalLink, MapPin, X } from "lucide-react";
-import type { PersonRow, PunchRow } from "@/lib/attendance-types";
+import { gpsFlagLabel, isStrongGpsFlag, type PersonRow, type PunchRow } from "@/lib/attendance-types";
 import { vnTime } from "@/lib/vn-time";
 import { coordText, mapEmbedUrl, mapsUrl } from "@/lib/map-link";
 import { compareByCode } from "@/lib/employee-order";
@@ -52,17 +52,67 @@ function Where({ row }: { row: PunchRow }) {
   );
 }
 
-export function OffsiteDrawer({ groups, allowOffsite, onClose }: { groups: Group[]; allowOffsite: boolean; onClose: () => void }) {
+/** Dấu hiệu GPS bất thường của một lượt (nếu có). */
+function Flags({ row }: { row: PunchRow }) {
+  const flags = row.gpsFlags ?? [];
+  if (!flags.length) return null;
+  const strong = flags.some(isStrongGpsFlag);
+  return (
+    <div className={`rounded-lg border px-3 py-2 text-xs leading-5 ${strong ? "border-clay bg-[#fbe9e4]" : "border-amber bg-[#fff6dd]"}`}>
+      <p className="font-semibold">{strong ? "Nghi ngờ giả GPS" : "Lưu ý về GPS"}</p>
+      <ul className="mt-0.5 list-disc pl-4">
+        {flags.map((f) => (
+          <li key={f}>{gpsFlagLabel(f)}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function GroupCards({ groups }: { groups: Group[] }) {
+  return (
+    <>
+      {groups.map((g) => (
+        <article key={g.userId} className="overflow-hidden rounded-xl border border-line bg-card">
+          <div className="flex items-center gap-3 border-b border-line px-4 py-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-sand font-display text-xl font-semibold">{g.fullName.charAt(0).toUpperCase()}</span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold">{g.fullName}</p>
+              <p className="truncate text-xs text-muted">{[g.code, g.dept].filter(Boolean).join(" · ") || "Chưa có mã NV, phòng ban"}</p>
+            </div>
+            <span className="rounded-md bg-clay px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-white">{g.punches.length} lượt</span>
+          </div>
+          <ul className="divide-y divide-line">
+            {g.punches.map((r) => (
+              <li key={r.id} className="space-y-2 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <span className={`w-12 rounded-md py-0.5 text-center text-xs font-semibold ${r.type === "in" ? "bg-[#d5f2e3] text-[#1f6a49]" : "bg-sand text-ink"}`}>{r.type === "in" ? "Vào" : "Ra"}</span>
+                  <p className="font-display text-2xl leading-none font-semibold tabular-nums">{vnTime(r.punchedAt)}</p>
+                </div>
+                <Flags row={r} />
+                <Where row={r} />
+                {r.hasPhoto ? <PunchPhoto id={r.id} showMap={false} /> : <p className="text-xs text-muted">Không có ảnh</p>}
+              </li>
+            ))}
+          </ul>
+        </article>
+      ))}
+    </>
+  );
+}
+
+export function OffsiteDrawer({ groups, flagged = [], allowOffsite, onClose }: { groups: Group[]; flagged?: Group[]; allowOffsite: boolean; onClose: () => void }) {
   const ref = useRef<HTMLElement>(null);
   useClickAway(ref, onClose, true);
   const punchCount = useMemo(() => groups.reduce((n, g) => n + g.punches.length, 0), [groups]);
+  const flaggedCount = useMemo(() => flagged.reduce((n, g) => n + g.punches.length, 0), [flagged]);
   return (
-    <aside ref={ref} className="fixed inset-y-0 right-0 z-30 flex w-full flex-col border-l-2 border-ink bg-paper shadow-2xl sm:w-[26rem]" aria-label="Chấm ngoài điểm hôm nay">
+    <aside ref={ref} className="fixed inset-y-0 right-0 z-30 flex w-full flex-col border-l-2 border-ink bg-paper shadow-2xl sm:w-[26rem]" aria-label="Chấm ngoài điểm và nghi ngờ GPS hôm nay">
       <header className="flex items-start justify-between gap-3 bg-night px-5 py-4 text-[#fff3d6]">
         <div>
           <h2 className="font-display text-3xl leading-tight font-bold">Chấm ngoài điểm</h2>
           <p className="mt-0.5 text-xs text-ice">
-            Hôm nay · {groups.length} người · {punchCount} lượt
+            Hôm nay · {groups.length} người · {punchCount} lượt{flaggedCount ? ` · ${flaggedCount} lượt nghi ngờ GPS` : ""}
           </p>
         </div>
         <button type="button" aria-label="Đóng" className="grid size-9 shrink-0 place-items-center rounded-md bg-[#433427]" onClick={onClose}>
@@ -70,7 +120,7 @@ export function OffsiteDrawer({ groups, allowOffsite, onClose }: { groups: Group
         </button>
       </header>
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
-        {groups.length === 0 ? (
+        {groups.length === 0 && flagged.length === 0 ? (
           <div className="rounded-xl border border-line bg-card px-5 py-10 text-center">
             <MapPin className="mx-auto size-8 text-muted" />
             <p className="mt-3 font-semibold">Hôm nay chưa có ai chấm ngoài điểm</p>
@@ -79,30 +129,16 @@ export function OffsiteDrawer({ groups, allowOffsite, onClose }: { groups: Group
             </p>
           </div>
         ) : null}
-        {groups.map((g) => (
-          <article key={g.userId} className="overflow-hidden rounded-xl border border-line bg-card">
-            <div className="flex items-center gap-3 border-b border-line px-4 py-3">
-              <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-sand font-display text-xl font-semibold">{g.fullName.charAt(0).toUpperCase()}</span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold">{g.fullName}</p>
-                <p className="truncate text-xs text-muted">{[g.code, g.dept].filter(Boolean).join(" · ") || "Chưa có mã NV, phòng ban"}</p>
-              </div>
-              <span className="rounded-md bg-clay px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-white">{g.punches.length} lượt</span>
+        <GroupCards groups={groups} />
+        {flagged.length ? (
+          <>
+            <div className="rounded-lg border border-amber bg-[#fff6dd] px-3 py-2 text-xs leading-5">
+              <p className="font-semibold">Nghi ngờ GPS (chấm trong điểm)</p>
+              <p>Các lượt dưới đây nằm trong vùng chấm công nhưng có dấu hiệu toạ độ bất thường. Hãy xem ảnh và đối chiếu trước khi kết luận.</p>
             </div>
-            <ul className="divide-y divide-line">
-              {g.punches.map((r) => (
-                <li key={r.id} className="space-y-2 px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <span className={`w-12 rounded-md py-0.5 text-center text-xs font-semibold ${r.type === "in" ? "bg-[#d5f2e3] text-[#1f6a49]" : "bg-sand text-ink"}`}>{r.type === "in" ? "Vào" : "Ra"}</span>
-                    <p className="font-display text-2xl leading-none font-semibold tabular-nums">{vnTime(r.punchedAt)}</p>
-                  </div>
-                  <Where row={r} />
-                  {r.hasPhoto ? <PunchPhoto id={r.id} /> : <p className="text-xs text-muted">Không có ảnh</p>}
-                </li>
-              ))}
-            </ul>
-          </article>
-        ))}
+            <GroupCards groups={flagged} />
+          </>
+        ) : null}
       </div>
     </aside>
   );

@@ -29,6 +29,8 @@ export type Settings = {
   allowOffsite: boolean;
   /** Mỗi tài khoản (trừ quản trị) chỉ dùng được trên một máy. */
   deviceLock: boolean;
+  /** Chặn chấm công khi server thấy dấu hiệu giả GPS rõ ràng. Tắt thì chỉ ghi lại để quản trị xem. */
+  gpsGuard: boolean;
 };
 
 export type LocationRow = {
@@ -76,6 +78,8 @@ export type PunchRow = {
   overtimeStatus: OvertimeStatus;
   userId?: string;
   fullName?: string;
+  /** Mã dấu hiệu GPS bất thường (xem gpsFlagLabel); chỉ có ở danh sách dành cho quản trị. */
+  gpsFlags?: string[];
   /** Toạ độ và địa chỉ nơi chấm (chỉ có với lượt chấm ngoài điểm). */
   lat?: number | null;
   lng?: number | null;
@@ -182,6 +186,8 @@ export type WorkspaceData = {
   teamToday: PersonRow[];
   pendingCount: number;
   offsiteToday: PunchRow[];
+  /** Lượt chấm trong điểm hôm nay có dấu hiệu GPS bất thường (chỉ quản trị và người duyệt nhận được). */
+  gpsFlagsToday: PunchRow[];
   lateToday: PunchRow[];
   overtimePending: PunchRow[];
 };
@@ -287,4 +293,32 @@ export type MonthGrid = {
 
 export function scheduleOf(s: Settings): Schedule {
   return { start: s.workStart, end: s.workEnd, lunchStart: s.lunchStart, lunchEnd: s.lunchEnd };
+}
+
+/** Lời giải thích dễ hiểu cho từng mã dấu hiệu GPS bất thường. */
+export function gpsFlagLabel(code: string): string {
+  const [kind, a, b] = code.split(":");
+  switch (kind) {
+    case "teleport":
+      return `Vị trí nhảy xa bất thường: cách lần chấm trước ${a} km chỉ sau ${b} phút`;
+    case "same_other":
+      return "Toạ độ GPS trùng khít với người khác (gần như không thể xảy ra nếu GPS thật)";
+    case "same_self":
+      return "Toạ độ GPS trùng khít với các lần chấm trước của chính người này";
+    case "round_coords":
+      return "Toạ độ là số tròn bất thường (GPS thật có nhiều chữ số lẻ)";
+    case "no_accuracy":
+      return "Không gửi kèm sai số GPS (ứng dụng cũ hoặc gọi trực tiếp)";
+    case "acc_low":
+      return "Sai số GPS nhỏ bất thường (dưới 2 m)";
+    case "edge_uncertain":
+      return "Sát mép vùng chấm công và sai số GPS lớn, có thể thật ra ở ngoài";
+    default:
+      return code;
+  }
+}
+
+/** Dấu hiệu nặng (đủ để nghi ngờ giả GPS) khác với dấu hiệu nhẹ chỉ để tham khảo. */
+export function isStrongGpsFlag(code: string): boolean {
+  return ["teleport", "same_other", "same_self", "round_coords", "no_accuracy"].includes(code.split(":")[0]);
 }

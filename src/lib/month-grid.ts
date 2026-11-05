@@ -94,8 +94,10 @@ export function dayOvertime(opts: {
   workStart: string;
   workEnd: string;
   minMinutes: number;
+  /** Phút ra muộn đã nằm trong đơn tăng ca buổi tối của ngày đó (xem requestCoverage), bỏ ra để không tính hai lần. */
+  coveredMinutes?: number;
 }): { minutes: number; counted: boolean; earlyMinutes: number; lateOutMinutes: number } {
-  const lateOut = Math.max(0, opts.outClock - hmToMin(opts.workEnd));
+  const lateOut = Math.max(0, opts.outClock - hmToMin(opts.workEnd) - (opts.coveredMinutes ?? 0));
   const early = opts.firstInClock == null ? 0 : Math.max(0, hmToMin(opts.workStart) - opts.firstInClock);
   const lateOk = lateOut > 0 && lateOut >= opts.minMinutes;
   const earlyOk = early > 0 && early >= opts.minMinutes;
@@ -112,15 +114,31 @@ export function congOf(minutes: number, full: number, half: number): 0 | 0.5 | 1
 }
 
 /**
- * Số phút tăng ca được tính của một đơn tăng ca: chỉ phần nằm trong giờ nghỉ trưa.
- * Phần trong giờ ca đã là giờ làm thường, phần sau giờ ra ca đã tự tính khi chấm ra nên không tính lại ở đây.
+ * Số phút tăng ca được tính của một đơn tăng ca: phần nằm trong giờ nghỉ trưa, cộng phần buổi tối sau giờ ra ca.
+ * Phần trong giờ ca đã là giờ làm thường nên không tính.
+ * Nếu ngày đó nhân viên đã chấm ra (`outClock`, số phút trong ngày) sau giờ ra ca thì khoảng từ giờ ra ca đến lúc chấm ra
+ * đã được tính tự động ở lượt ra, nên phần trùng đó không tính lại trong đơn.
  */
-export function countableOvertime(start: string, end: string, sc: Schedule): number {
+export function countableOvertime(start: string, end: string, sc: Schedule, outClock?: number | null): number {
   const a = hmToMin(start);
   const b = hmToMin(end);
   if (b <= a) return 0;
   const overlap = (x1: number, x2: number) => Math.max(0, Math.min(b, x2) - Math.max(a, x1));
-  return overlap(hmToMin(sc.lunchStart), hmToMin(sc.lunchEnd));
+  const workEnd = hmToMin(sc.end);
+  const lunch = overlap(hmToMin(sc.lunchStart), hmToMin(sc.lunchEnd));
+  const evening = overlap(workEnd, 24 * 60);
+  const alreadyCounted = outClock != null && outClock > workEnd ? overlap(workEnd, outClock) : 0;
+  return lunch + Math.max(0, evening - alreadyCounted);
+}
+
+/**
+ * Số phút trong khoảng "giờ ra ca → lúc chấm ra" đã nằm trong các đơn tăng ca buổi tối (chờ duyệt hoặc đã duyệt) của ngày đó.
+ * Lượt ra bỏ phần này để không tính hai lần.
+ */
+export function requestCoverage(windows: { start: string; end: string }[], workEnd: string, outClock: number): number {
+  const we = hmToMin(workEnd);
+  if (outClock <= we) return 0;
+  return windows.reduce((sum, w) => sum + Math.max(0, Math.min(hmToMin(w.end), outClock) - Math.max(hmToMin(w.start), we)), 0);
 }
 
 export type DayCell = {
@@ -135,7 +153,7 @@ export type DayCell = {
   lateMinutes: number;
   overtimeMinutes: number;
   overtimeStatus: MonthPunch["overtimeStatus"];
-  /** Tăng ca theo đơn đã duyệt (giờ nghỉ trưa), cộng riêng với tăng ca khi chấm ra. */
+  /** Tăng ca theo đơn đã duyệt (giờ nghỉ trưa, buổi tối), cộng riêng với tăng ca khi chấm ra. */
   extraOvertimeMinutes: number;
   offsite: boolean;
   corrected: boolean;

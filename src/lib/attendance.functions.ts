@@ -31,6 +31,7 @@ import {
   countableOvertime,
   dayOvertime,
   monthDayKeys,
+  requestCoverage,
   summarize,
   workedMinutes as sumWorked,
   type MonthPunch,
@@ -330,6 +331,19 @@ async function fetchAddress(lat: number, lng: number): Promise<string | null> {
   const text = parts.length >= 2 ? parts.join(", ") : (j.display_name ?? "");
   const out = text.trim().slice(0, 220);
   return out ? (road ? out : `${out} (chưa rõ tên đường)`) : null;
+}
+
+/** Các đơn tăng ca (chờ duyệt hoặc đã duyệt) của một người trong một ngày, để lượt ra không tính trùng với phần đã xin. */
+async function otRequestWindows(
+  sql: Awaited<ReturnType<typeof getSql>>,
+  userId: string,
+  day: string,
+): Promise<{ start: string; end: string }[]> {
+  const rows = await sql<{ start_time: string; end_time: string }>`
+    select start_time, end_time from overtime_requests
+    where user_id = ${userId} and work_date = ${day}::date and status in ('pending', 'approved')
+  `;
+  return rows.map((r) => ({ start: r.start_time, end: r.end_time }));
 }
 
 /** Phút tăng ca theo đơn đã duyệt: userId -> ngày -> phút. */
@@ -956,7 +970,7 @@ export const punch = createServerFn({ method: "POST" })
     const punchedAt = new Date().toISOString();
     // Các truy vấn không phụ thuộc nhau chạy cùng lúc (trước đây chạy nối đuôi, mỗi cái chờ cái trước).
     const gradeFix = data.accuracy != null && Number(data.accuracy) <= GPS_GRADE_M;
-    const [prev, dayRows, locs, isHoliday, sameRows] = await Promise.all([
+    const [prev, dayRows, locs, isHoliday, sameRows, otWindows] = await Promise.all([
       // Lượt chấm gần nhất có toạ độ: dùng cho chặn bấm lặp (60 giây) và phát hiện "nhảy vị trí" bất thường.
       sql<{ punched_at: unknown; lat: number; lng: number }>`
         select punched_at, lat, lng from attendances
@@ -987,6 +1001,8 @@ export const punch = createServerFn({ method: "POST" })
               and punched_at > now() - interval '30 days'
           `
         : Promise.resolve([] as { user_id: string }[]),
+      // Đơn tăng ca buổi tối đã gửi trong ngày: lượt ra không tính lại phần đã nằm trong đơn.
+      data.type === "out" ? otRequestWindows(sql, profile.userId, vnDateKey(punchedAt)) : Promise.resolve([] as { start: string; end: string }[]),
     ]);
     const countedToday = dayRows.filter((row) => row.status === "valid" || row.status === "corrected");
     const insToday = countedToday.filter((row) => row.type === "in").length;
@@ -1101,6 +1117,7 @@ export const punch = createServerFn({ method: "POST" })
           workStart: settings.workStart,
           workEnd: settings.workEnd,
           minMinutes: settings.overtimeMinMinutes,
+          coveredMinutes: requestCoverage(otWindows, settings.workEnd, clock),
         });
         overtimeMinutes = ot.minutes;
         overtimeStatus = ot.counted ? "pending" : "none";
@@ -1380,12 +1397,14 @@ export const reviewCorrection = createServerFn({ method: "POST" })
       }
       if (!sunday && row.punch_type === "out") {
         const firstInAt = await earliestIn();
+        const windows = await otRequestWindows(sql, row.user_id, day);
         const ot = dayOvertime({
           outClock: clock,
           firstInClock: firstInAt ? vnMinutes(firstInAt) : null,
           workStart: settings.workStart,
           workEnd: settings.workEnd,
           minMinutes: settings.overtimeMinMinutes,
+          coveredMinutes: requestCoverage(windows, settings.workEnd, clock),
         });
         overtimeMinutes = ot.minutes;
         overtimeStatus = ot.counted ? "pending" : "none";
@@ -1415,12 +1434,15 @@ export const reviewCorrection = createServerFn({ method: "POST" })
         const out = outs[0];
         if (out && (out.overtime_status === "none" || out.overtime_status === "pending")) {
           const firstInAt = await earliestIn();
+          const windows = await otRequestWindows(sql, row.user_id, day);
+          const outClock = vnMinutes(stamp(out.punched_at));
           const ot = dayOvertime({
-            outClock: vnMinutes(stamp(out.punched_at)),
+            outClock,
             firstInClock: firstInAt ? vnMinutes(firstInAt) : null,
             workStart: settings.workStart,
             workEnd: settings.workEnd,
             minMinutes: settings.overtimeMinMinutes,
+            coveredMinutes: requestCoverage(windows, settings.workEnd, outClock),
           });
           await sql`
             update attendances
@@ -2654,10 +2676,21 @@ export const createOvertimeRequest = createServerFn({ method: "POST" })
       throw new Error("Chủ nhật và ngày lễ: cứ chấm vào/ra như bình thường, hệ thống tự tính tăng ca. Không cần gửi đơn.");
     }
     if (hmToMinutes(data.endTime) <= hmToMinutes(data.startTime)) throw new Error("Giờ kết thúc phải sau giờ bắt đầu");
-    const minutes = countableOvertime(data.startTime, data.endTime, scheduleOf(settings));
+    // Nếu hôm đó đã chấm ra sau giờ ra ca, khoảng từ giờ ra ca đến lúc chấm ra đã được tính ở lượt ra nên không tính lại.
+    const bounds = dayRange(data.workDate);
+    const lastOut = await sql<{ punched_at: unknown }>`
+      select punched_at from attendances
+      where user_id = ${profile.userId} and type = 'out'
+        and punched_at >= ${bounds.start}::timestamptz and punched_at < ${bounds.end}::timestamptz
+        and status in ('valid', 'corrected')
+      order by punched_at desc
+      limit 1
+    `;
+    const outClock = lastOut[0] ? vnMinutes(stamp(lastOut[0].punched_at)) : null;
+    const minutes = countableOvertime(data.startTime, data.endTime, scheduleOf(settings), outClock);
     if (minutes < settings.overtimeMinMinutes) {
       throw new Error(
-        `Đơn tăng ca chỉ tính phần giờ nghỉ trưa (${settings.lunchStart}–${settings.lunchEnd}). Phần trong giờ làm đã tính công, phần sau ${settings.workEnd} tự tính khi chấm ra. Cần từ ${settings.overtimeMinMinutes} phút trở lên.`,
+        `Đơn tăng ca chỉ tính phần giờ nghỉ trưa (${settings.lunchStart}–${settings.lunchEnd}) và phần buổi tối sau ${settings.workEnd}. Phần trong giờ làm đã tính công${outClock != null && outClock > hmToMinutes(settings.workEnd) ? `, phần từ ${settings.workEnd} đến lúc bạn chấm ra (${minutesToHm(outClock)}) đã được tính ở lượt ra` : ""}. Cần từ ${settings.overtimeMinMinutes} phút trở lên.`,
       );
     }
     const clash = await sql<{ start_time: string; end_time: string }>`

@@ -436,7 +436,7 @@ function Detail({ item }: { item: Item }) {
           {o.startTime}–{o.endTime}
         </p>
         <p className="text-sm text-muted">
-          Ngày {shortDate(o.workDate)} · gửi {ago(o.createdAt)}. Duyệt xong, {minutesToHm(o.minutes)} được cộng vào tăng ca của tháng (chỉ tính phần giờ nghỉ trưa).
+          Ngày {shortDate(o.workDate)} · gửi {ago(o.createdAt)}. Duyệt xong, {minutesToHm(o.minutes)} được cộng vào tăng ca của tháng (phần giờ nghỉ trưa và buổi tối sau giờ ra ca).
         </p>
         <blockquote className="border-l-4 border-ice bg-paper px-4 py-3 text-sm">{o.note}</blockquote>
       </div>

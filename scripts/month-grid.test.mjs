@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildCell, countableOvertime, dayOvertime, monthDayKeys, summarize, weekdayOf, workedMinutes } from "../src/lib/month-grid.ts";
+import { buildCell, countableOvertime, dayOvertime, monthDayKeys, requestCoverage, summarize, weekdayOf, workedMinutes } from "../src/lib/month-grid.ts";
 
 const hm = (iso) => iso.slice(11, 16);
 const p = (type, at, extra = {}) => ({
@@ -121,13 +121,13 @@ test("giờ làm trừ nghỉ trưa, vào sớm/ra muộn không cộng thêm tr
   assert.equal(c.cong, 1);
 });
 
-test("đơn tăng ca: chỉ tính giờ nghỉ trưa", () => {
+test("đơn tăng ca: tính giờ nghỉ trưa và buổi tối, không tính giờ làm", () => {
   const sc = { start: "07:30", end: "17:30", lunchStart: "11:30", lunchEnd: "13:30" };
   assert.equal(countableOvertime("11:30", "13:30", sc), 120); // cả buổi trưa
   assert.equal(countableOvertime("12:00", "13:00", sc), 60);
   assert.equal(countableOvertime("11:00", "14:00", sc), 120); // phần trong ca không tính
   assert.equal(countableOvertime("06:30", "07:30", sc), 0); // trước giờ vào ca: không tính
-  assert.equal(countableOvertime("17:30", "20:00", sc), 0); // sau giờ ra: tự tính khi chấm ra
+  assert.equal(countableOvertime("17:30", "20:00", sc), 150); // buổi tối sau giờ ra ca: tính khi chưa chấm ra muộn hơn
   assert.equal(countableOvertime("13:30", "12:00", sc), 0);
 });
 
@@ -216,4 +216,70 @@ test("ngưỡng 0 phút: vào sớm 1 phút cũng tính, không vào sớm khôn
 
 test("ngưỡng 45 phút: vào sớm 40 phút không đủ", () => {
   assert.equal(ot("06:50", "17:30", 45).counted, false);
+});
+
+// ---- Đơn tăng ca buổi tối ----
+const sched = { start: "07:30", end: "17:30", lunchStart: "11:30", lunchEnd: "13:30" };
+const mm = (hm) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3, 5));
+
+test("đơn tối 18:00–21:00 tính 180 phút khi chưa chấm ra", () => {
+  assert.equal(countableOvertime("18:00", "21:00", sched), 180);
+  assert.equal(countableOvertime("18:00", "21:00", sched, null), 180);
+});
+
+test("đơn tối bắt đầu trước giờ ra ca: phần trong giờ làm không tính", () => {
+  assert.equal(countableOvertime("17:00", "20:00", sched), 150); // 17:30–20:00
+});
+
+test("đơn trải từ trưa tới tối: cộng giờ nghỉ trưa và buổi tối, bỏ phần giờ làm", () => {
+  assert.equal(countableOvertime("11:30", "21:00", sched), 120 + 210);
+});
+
+test("đã chấm ra 17:30 (lỡ bấm) rồi tăng ca tối: tính đủ cả đơn", () => {
+  assert.equal(countableOvertime("18:30", "21:00", sched, mm("17:30")), 150);
+});
+
+test("đã chấm ra 19:00: phần 17:30–19:00 đã tính ở lượt ra nên đơn 18:00–21:00 chỉ còn 19:00–21:00", () => {
+  assert.equal(countableOvertime("18:00", "21:00", sched, mm("19:00")), 120);
+});
+
+test("đơn nằm trọn trong khoảng đã chấm ra thì không còn gì để tính", () => {
+  assert.equal(countableOvertime("18:00", "19:00", sched, mm("20:00")), 0);
+});
+
+test("đơn tối không vượt giờ kết thúc, giờ kết thúc không sau giờ bắt đầu thì 0", () => {
+  assert.equal(countableOvertime("20:00", "19:00", sched), 0);
+  assert.equal(countableOvertime("18:00", "18:00", sched), 0);
+});
+
+test("lượt ra bỏ phần đã nằm trong đơn tối (đơn gửi trước khi chấm ra)", () => {
+  const windows = [{ start: "18:00", end: "21:00" }];
+  assert.equal(requestCoverage(windows, "17:30", mm("21:00")), 180);
+  assert.equal(requestCoverage(windows, "17:30", mm("19:00")), 60);
+  assert.equal(requestCoverage(windows, "17:30", mm("17:50")), 0);
+  assert.equal(requestCoverage([], "17:30", mm("21:00")), 0);
+});
+
+test("không tính trùng: đơn 18:00–21:00 rồi chấm ra 21:00 thì lượt ra chỉ còn 17:30–18:00", () => {
+  const windows = [{ start: "18:00", end: "21:00" }];
+  const r = dayOvertime({ outClock: mm("21:00"), firstInClock: mm("07:30"), workStart: "07:30", workEnd: "17:30", minMinutes: 30, coveredMinutes: requestCoverage(windows, "17:30", mm("21:00")) });
+  assert.equal(r.counted, true);
+  assert.equal(r.minutes, 30);
+  // tổng: 30 (lượt ra) + 180 (đơn) = 210 = đúng 17:30 → 21:00
+  assert.equal(r.minutes + countableOvertime("18:00", "21:00", sched), 210);
+});
+
+test("không tính trùng: đơn 17:30–20:00 rồi chấm ra 20:00 thì lượt ra không còn phần nào", () => {
+  const windows = [{ start: "17:30", end: "20:00" }];
+  const r = dayOvertime({ outClock: mm("20:00"), firstInClock: mm("07:30"), workStart: "07:30", workEnd: "17:30", minMinutes: 30, coveredMinutes: requestCoverage(windows, "17:30", mm("20:00")) });
+  assert.equal(r.counted, false);
+  assert.equal(r.minutes, 0);
+});
+
+test("không tính trùng theo thứ tự ngược: chấm ra 19:00 trước, sau đó xin 18:00–21:00", () => {
+  const out = dayOvertime({ outClock: mm("19:00"), firstInClock: mm("07:30"), workStart: "07:30", workEnd: "17:30", minMinutes: 30 });
+  const req = countableOvertime("18:00", "21:00", sched, mm("19:00"));
+  assert.equal(out.minutes, 90);
+  assert.equal(req, 120);
+  assert.equal(out.minutes + req, 210); // 17:30 → 21:00, không dư không thiếu
 });

@@ -64,6 +64,7 @@ import {
   formatMeters,
   formatMonthLabel,
   formatVnDay,
+  hmToMinutes,
   isEarlyOut,
   minutesToHm,
   mondayIndex,
@@ -1721,23 +1722,36 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
       <form className="space-y-3 rounded-xl border border-line bg-card p-3.5" onSubmit={submit}>
         <h2 className="font-display text-2xl font-semibold">Xin tăng ca</h2>
         <p className="text-sm text-muted">
-          Dùng khi làm vào giờ nghỉ trưa ({settings.lunchStart}–{settings.lunchEnd}). Làm quá {settings.workEnd} thì cứ chấm ra, hệ thống tự tính, không cần gửi đơn.
+          Dùng khi tăng ca vào giờ nghỉ trưa ({settings.lunchStart}–{settings.lunchEnd}), hoặc buổi tối sau {settings.workEnd} mà bạn đã lỡ bấm ra ca. Nếu chưa bấm ra thì cứ chấm ra lúc xong việc, hệ thống tự tính phần sau {settings.workEnd}.
         </p>
         <label className="block space-y-1 text-sm">
           Ngày làm
           <input className={fieldClass} type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
         </label>
-        <button
-          type="button"
-          className={`w-full rounded-lg border px-3 py-2 text-sm font-semibold ${from === settings.lunchStart && to === settings.lunchEnd ? "border-amber bg-ice/20" : "border-line"}`}
-          onClick={() => {
-            setFrom(settings.lunchStart);
-            setTo(settings.lunchEnd);
-          }}
-        >
-          Cả buổi trưa
-          <span className="ml-2 text-xs font-normal text-muted">{settings.lunchStart}–{settings.lunchEnd}</span>
-        </button>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            className={`rounded-lg border px-3 py-2 text-sm font-semibold ${from === settings.lunchStart && to === settings.lunchEnd ? "border-amber bg-ice/20" : "border-line"}`}
+            onClick={() => {
+              setFrom(settings.lunchStart);
+              setTo(settings.lunchEnd);
+            }}
+          >
+            Cả buổi trưa
+            <span className="block text-xs font-normal text-muted">{settings.lunchStart}–{settings.lunchEnd}</span>
+          </button>
+          <button
+            type="button"
+            className={`rounded-lg border px-3 py-2 text-sm font-semibold ${from === settings.workEnd ? "border-amber bg-ice/20" : "border-line"}`}
+            onClick={() => {
+              setFrom(settings.workEnd);
+              setTo(minutesToHm(Math.min(23 * 60 + 59, hmToMinutes(settings.workEnd) + 180)));
+            }}
+          >
+            Buổi tối
+            <span className="block text-xs font-normal text-muted">từ {settings.workEnd}, sửa giờ kết thúc</span>
+          </button>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <label className="space-y-1 text-sm">
             Từ giờ
@@ -1750,7 +1764,7 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
         </div>
         <p className={`rounded-lg px-3 py-2 text-sm ${tooShort ? "bg-clay/15 text-clay" : "bg-ok/15 text-ok"}`}>
           {tooShort
-            ? `Được tính ${minutesToHm(counted)}. Cần từ ${settings.overtimeMinMinutes} phút trở lên, chỉ tính giờ nghỉ trưa.`
+            ? `Được tính ${minutesToHm(counted)}. Cần từ ${settings.overtimeMinMinutes} phút trở lên, chỉ tính giờ nghỉ trưa và buổi tối sau ${settings.workEnd}.`
             : `Được tính ${minutesToHm(counted)} tăng ca nếu được duyệt.`}
         </p>
         <label className="block space-y-1 text-sm">

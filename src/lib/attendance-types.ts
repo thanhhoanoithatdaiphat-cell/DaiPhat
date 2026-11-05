@@ -125,7 +125,7 @@ export type OvertimeRequestRow = {
   workDate: string;
   startTime: string;
   endTime: string;
-  /** Số phút được tính (chỉ phần nằm trong giờ nghỉ trưa). */
+  /** Số phút được tính (phần trong giờ nghỉ trưa và phần buổi tối sau giờ ra ca). */
   minutes: number;
   note: string;
   status: "pending" | "approved" | "rejected";

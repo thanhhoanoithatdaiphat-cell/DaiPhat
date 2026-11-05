@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildCell, countableOvertime, monthDayKeys, summarize, weekdayOf, workedMinutes } from "../src/lib/month-grid.ts";
+import { buildCell, countableOvertime, dayOvertime, monthDayKeys, summarize, weekdayOf, workedMinutes } from "../src/lib/month-grid.ts";
 
 const hm = (iso) => iso.slice(11, 16);
 const p = (type, at, extra = {}) => ({
@@ -141,4 +141,79 @@ test("tăng ca theo đơn đã duyệt cộng vào tổng tăng ca của tháng"
 test("giờ tăng ca theo đơn không mất khi ngày đó không có lượt chấm", () => {
   const c = cell("2026-10-12", [], { extraOvertimeMinutes: 120 });
   assert.equal(summarize([c]).overtimeMinutes, 120);
+});
+
+// ---- Tăng ca vào sớm (trước giờ vào ca) ----
+const ot = (inHm, outHm, min = 30) => {
+  const m = (hm) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3, 5));
+  return dayOvertime({ outClock: m(outHm), firstInClock: inHm ? m(inHm) : null, workStart: "07:30", workEnd: "17:30", minMinutes: min });
+};
+
+test("vào sớm đủ 30 phút (07:00) thì tính tăng ca", () => {
+  const r = ot("07:00", "17:30");
+  assert.equal(r.counted, true);
+  assert.equal(r.minutes, 30);
+  assert.equal(r.earlyMinutes, 30);
+});
+
+test("vào sớm 29 phút (07:01) chưa đủ nên không tính", () => {
+  const r = ot("07:01", "17:30");
+  assert.equal(r.counted, false);
+  assert.equal(r.minutes, 0);
+});
+
+test("vào 06:50 thì tính 40 phút", () => {
+  assert.equal(ot("06:50", "17:30").minutes, 40);
+});
+
+test("vào đúng 07:30 hoặc muộn hơn thì không có phần vào sớm", () => {
+  assert.equal(ot("07:30", "17:30").counted, false);
+  assert.equal(ot("08:10", "17:30").counted, false);
+});
+
+test("vào sớm đủ và ra muộn đủ thì cộng hai phần", () => {
+  const r = ot("06:50", "18:10");
+  assert.equal(r.counted, true);
+  assert.equal(r.minutes, 80);
+  assert.equal(r.earlyMinutes, 40);
+  assert.equal(r.lateOutMinutes, 40);
+});
+
+test("mỗi phần tính riêng: vào sớm 20 + ra muộn 20 thì không tính phần nào", () => {
+  const r = ot("07:10", "17:50");
+  assert.equal(r.counted, false);
+  assert.equal(r.minutes, 20);
+});
+
+test("vào sớm đủ, ra muộn chưa đủ thì chỉ tính phần vào sớm", () => {
+  const r = ot("06:45", "17:50");
+  assert.equal(r.counted, true);
+  assert.equal(r.minutes, 45);
+});
+
+test("chỉ ra muộn đủ 30 phút vẫn tính như trước", () => {
+  const r = ot("07:25", "18:00");
+  assert.equal(r.counted, true);
+  assert.equal(r.minutes, 30);
+});
+
+test("ra muộn chưa đủ, không vào sớm: giữ số phút thực tế để hiển thị 'chưa đủ'", () => {
+  const r = ot("07:30", "17:50");
+  assert.equal(r.counted, false);
+  assert.equal(r.minutes, 20);
+});
+
+test("không có lượt vào thì không có phần vào sớm", () => {
+  const r = ot(null, "18:00");
+  assert.equal(r.counted, true);
+  assert.equal(r.minutes, 30);
+});
+
+test("ngưỡng 0 phút: vào sớm 1 phút cũng tính, không vào sớm không ra muộn thì không tính", () => {
+  assert.equal(ot("07:29", "17:30", 0).minutes, 1);
+  assert.equal(ot("07:30", "17:30", 0).counted, false);
+});
+
+test("ngưỡng 45 phút: vào sớm 40 phút không đủ", () => {
+  assert.equal(ot("06:50", "17:30", 45).counted, false);
 });

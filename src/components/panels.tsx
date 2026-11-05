@@ -2352,7 +2352,7 @@ export function SettingsForm({ data, onChanged }: { data: WorkspaceData; onChang
       <p className="text-xs text-muted">Nhân viên chỉ chấm 2 lần: vào đầu ca và ra cuối ca. Giờ làm = từ giờ vào đến giờ ra, trừ nghỉ trưa (ca 07:30–17:30 nghỉ 11:30–13:30 là 8 giờ).</p>
       <div className="grid grid-cols-3 gap-3">
         <label className="space-y-1 text-sm">
-          Tăng ca tính từ (phút)
+          Tăng ca tính từ (phút, ra muộn hoặc vào sớm)
           <input className={fieldClass} type="number" min={0} max={240} value={settings.overtimeMinMinutes} onChange={(e) => setSettings({ ...settings, overtimeMinMinutes: Number(e.target.value) })} />
         </label>
         <label className="space-y-1 text-sm">

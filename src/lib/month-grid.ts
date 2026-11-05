@@ -80,6 +80,30 @@ export function workedMinutes(
   return Math.round(total);
 }
 
+/**
+ * Tăng ca của một ngày thường khi ra ca, gồm hai phần tính riêng:
+ *  - ra muộn: phút sau giờ ra ca;
+ *  - vào sớm: phút trước giờ vào ca (tính từ lần vào đầu tiên trong ngày).
+ * Mỗi phần phải đủ `minMinutes` phút mới được tính. Cả hai phần cùng đủ thì cộng lại.
+ * Không phần nào đủ thì không tính (`counted: false`) và `minutes` giữ số phút ra muộn thực tế để hiển thị "chưa đủ".
+ * Giờ vào/ra là số phút trong ngày theo giờ Việt Nam.
+ */
+export function dayOvertime(opts: {
+  outClock: number;
+  firstInClock: number | null;
+  workStart: string;
+  workEnd: string;
+  minMinutes: number;
+}): { minutes: number; counted: boolean; earlyMinutes: number; lateOutMinutes: number } {
+  const lateOut = Math.max(0, opts.outClock - hmToMin(opts.workEnd));
+  const early = opts.firstInClock == null ? 0 : Math.max(0, hmToMin(opts.workStart) - opts.firstInClock);
+  const lateOk = lateOut > 0 && lateOut >= opts.minMinutes;
+  const earlyOk = early > 0 && early >= opts.minMinutes;
+  const counted = lateOk || earlyOk;
+  const minutes = counted ? (lateOk ? lateOut : 0) + (earlyOk ? early : 0) : lateOut;
+  return { minutes, counted, earlyMinutes: earlyOk ? early : 0, lateOutMinutes: lateOk ? lateOut : 0 };
+}
+
 /** 1 công khi đủ `full` phút, 0.5 công khi đủ `half` phút, còn lại 0. */
 export function congOf(minutes: number, full: number, half: number): 0 | 0.5 | 1 {
   if (minutes >= full) return 1;

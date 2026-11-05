@@ -29,6 +29,7 @@ import {
   buildCell,
   congOf,
   countableOvertime,
+  dayOvertime,
   monthDayKeys,
   summarize,
   workedMinutes as sumWorked,
@@ -964,8 +965,8 @@ export const punch = createServerFn({ method: "POST" })
         limit 1
       `,
       // Một truy vấn cho các lượt hôm nay (trước đây ba truy vấn): lượt cuối, số lượt vào, số lượt ra.
-      sql<{ type: "in" | "out"; status: string }>`
-        select type, status from attendances
+      sql<{ type: "in" | "out"; status: string; punched_at: unknown }>`
+        select type, status, punched_at from attendances
         where user_id = ${profile.userId}
           and punched_at >= ${todayBounds.start}::timestamptz
           and punched_at < ${todayBounds.end}::timestamptz
@@ -1088,8 +1089,22 @@ export const punch = createServerFn({ method: "POST" })
         const shiftStart = shiftStartMinutes(settings, clock);
         lateMinutes = Math.max(0, clock - shiftStart);
       }
-      overtimeMinutes = data.type === "out" ? Math.max(0, clock - hmToMinutes(settings.workEnd)) : 0;
-      overtimeStatus = overtimeMinutes >= settings.overtimeMinMinutes ? "pending" : "none";
+      if (data.type === "out") {
+        // Tăng ca = ra muộn sau giờ ra ca + vào sớm trước giờ vào ca (lần vào đầu tiên hôm nay); mỗi phần đủ ngưỡng mới tính.
+        const firstInAt = countedToday
+          .filter((row) => row.type === "in")
+          .map((row) => stamp(row.punched_at))
+          .sort()[0];
+        const ot = dayOvertime({
+          outClock: clock,
+          firstInClock: firstInAt ? vnMinutes(firstInAt) : null,
+          workStart: settings.workStart,
+          workEnd: settings.workEnd,
+          minMinutes: settings.overtimeMinMinutes,
+        });
+        overtimeMinutes = ot.minutes;
+        overtimeStatus = ot.counted ? "pending" : "none";
+      }
     }
     // Kiểm tra lại trạng thái ngay trong câu lệnh insert (một lượt đi tới cơ sở dữ liệu thay vì hai):
     // vào ca chỉ ghi được khi lượt cuối hôm nay là "ra" (hoặc chưa có), ra ca chỉ ghi khi lượt cuối là "vào".
@@ -1338,18 +1353,25 @@ export const reviewCorrection = createServerFn({ method: "POST" })
       let overtimeStatus: OvertimeStatus = "none";
       const clock = hmToMinutes(row.requested_time);
       const sunday = vnWeekday(day + "T00:00:00+07:00") === 0 || (await isHolidayDay(profile.companyId, day));
-      if (!sunday && row.punch_type === "in") {
-        // Chỉ tính muộn nếu đây sẽ là lần vào đầu tiên (hoặc sớm nhất)
-        const existing = await sql<{ punched_at: unknown }>`
+      const bounds = dayRange(day);
+      // Lần vào sớm nhất đang có trong ngày (giờ Việt Nam), dùng cho cả tính muộn và tính vào sớm.
+      const earliestIn = async () => {
+        const rows = await sql<{ punched_at: unknown }>`
           select punched_at from attendances
           where user_id = ${row.user_id}
             and type = 'in'
-            and punched_at >= ${day}::date
-            and punched_at < (${day}::date + interval '1 day')
+            and punched_at >= ${bounds.start}::timestamptz
+            and punched_at < ${bounds.end}::timestamptz
             and status in ('valid', 'corrected')
           order by punched_at asc
           limit 1
         `;
+        return rows[0] ? stamp(rows[0].punched_at) : null;
+      };
+      if (!sunday && row.punch_type === "in") {
+        // Chỉ tính muộn nếu đây sẽ là lần vào đầu tiên (hoặc sớm nhất)
+        const existingIn = await earliestIn();
+        const existing = existingIn ? [{ punched_at: existingIn }] : [];
         const isEarliest = !existing[0] || new Date(punchedAt).getTime() <= new Date(stamp(existing[0].punched_at)).getTime();
         if (isEarliest) {
           const shiftStart = shiftStartMinutes(settings, clock);
@@ -1357,8 +1379,16 @@ export const reviewCorrection = createServerFn({ method: "POST" })
         }
       }
       if (!sunday && row.punch_type === "out") {
-        overtimeMinutes = Math.max(0, clock - hmToMinutes(settings.workEnd));
-        overtimeStatus = overtimeMinutes >= settings.overtimeMinMinutes ? "pending" : "none";
+        const firstInAt = await earliestIn();
+        const ot = dayOvertime({
+          outClock: clock,
+          firstInClock: firstInAt ? vnMinutes(firstInAt) : null,
+          workStart: settings.workStart,
+          workEnd: settings.workEnd,
+          minMinutes: settings.overtimeMinMinutes,
+        });
+        overtimeMinutes = ot.minutes;
+        overtimeStatus = ot.counted ? "pending" : "none";
       }
       await sql`
         insert into attendances (
@@ -1370,6 +1400,35 @@ export const reviewCorrection = createServerFn({ method: "POST" })
           ${lateMinutes}, ${overtimeMinutes}, ${overtimeStatus}
         )
       `;
+      // Duyệt đơn sửa giờ VÀO sớm hơn giờ vào ca khi ngày đó đã có lượt ra: tính lại tăng ca của lượt ra (chỉ khi chưa được duyệt hay từ chối).
+      if (!sunday && row.punch_type === "in" && clock < hmToMinutes(settings.workStart)) {
+        const outs = await sql<{ id: number; punched_at: unknown; overtime_status: string }>`
+          select id, punched_at, overtime_status from attendances
+          where user_id = ${row.user_id}
+            and type = 'out'
+            and punched_at >= ${bounds.start}::timestamptz
+            and punched_at < ${bounds.end}::timestamptz
+            and status in ('valid', 'corrected')
+          order by punched_at desc
+          limit 1
+        `;
+        const out = outs[0];
+        if (out && (out.overtime_status === "none" || out.overtime_status === "pending")) {
+          const firstInAt = await earliestIn();
+          const ot = dayOvertime({
+            outClock: vnMinutes(stamp(out.punched_at)),
+            firstInClock: firstInAt ? vnMinutes(firstInAt) : null,
+            workStart: settings.workStart,
+            workEnd: settings.workEnd,
+            minMinutes: settings.overtimeMinMinutes,
+          });
+          await sql`
+            update attendances
+            set overtime_minutes = ${ot.minutes}, overtime_status = ${ot.counted ? "pending" : "none"}
+            where id = ${out.id} and overtime_status in ('none', 'pending')
+          `;
+        }
+      }
     }
     await sql`
       update correction_requests

@@ -10,7 +10,7 @@ export type Settings = {
   /** Giờ nghỉ trưa (không tính vào giờ làm). */
   lunchStart: string;
   lunchEnd: string;
-  /** Ra muộn từ số phút này trở lên thì mới tính tăng ca. */
+  /** Ra muộn sau giờ ra ca, hoặc vào sớm trước giờ vào ca, từ số phút này trở lên thì mới tính tăng ca (mỗi phần tính riêng). */
   overtimeMinMinutes: number;
   lateMinutes: number;
   /** Làm từ số phút này thì tính 1 công. */

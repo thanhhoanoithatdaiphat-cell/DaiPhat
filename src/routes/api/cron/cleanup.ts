@@ -23,7 +23,9 @@ async function run(request: Request): Promise<Response> {
       and punched_at < now() - make_interval(days => ${PHOTO_RETENTION_DAYS})
     returning id
   `;
-  return Response.json({ ok: true, photosRemoved: cleared.length, olderThanDays: PHOTO_RETENTION_DAYS });
+  // Địa chỉ đệm cũ hơn 180 ngày cho tra lại (tên đường có thể đổi); lỗi ở bước này không làm hỏng việc dọn ảnh.
+  const geo = await sql<{ cell: string }>`delete from geocode_cache where created_at < now() - interval '180 days' returning cell`.catch(() => [] as { cell: string }[]);
+  return Response.json({ ok: true, photosRemoved: cleared.length, olderThanDays: PHOTO_RETENTION_DAYS, geocodeRemoved: geo.length });
 }
 
 export const Route = createFileRoute("/api/cron/cleanup")({

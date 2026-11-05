@@ -322,6 +322,8 @@ export function PunchPanel({
   const [pendingPhoto, setPendingPhoto] = useState("");
   const [pendingLoc, setPendingLoc] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
   const active = data.locations.filter((loc) => loc.isActive);
+  // Đang trong vùng điểm làm việc nào (để ghi tên điểm lên ảnh và dùng chung một địa chỉ đã đệm cho cả điểm).
+  const insideLoc = pendingLoc ? (active.find((loc) => distanceM(pendingLoc.lat, pendingLoc.lng, loc.lat, loc.lng) <= loc.radiusMeters) ?? null) : null;
   const last = data.today[data.today.length - 1];
   const clock = useClock();
   const primary: "in" | "out" = last?.type === "in" ? "out" : "in";
@@ -676,12 +678,15 @@ export function PunchPanel({
               ? {
                   lat: pendingLoc.lat,
                   lng: pendingLoc.lng,
-                  placeName:
-                    active.find((loc) => distanceM(pendingLoc.lat, pendingLoc.lng, loc.lat, loc.lng) <= loc.radiusMeters)?.name ?? null,
+                  placeName: insideLoc?.name ?? null,
                 }
               : null
           }
-          lookupAddress={(lat, lng) => whereAmI({ data: { lat, lng } }).then((r) => r.address)}
+          // Trong điểm: tra địa chỉ của chính điểm làm việc (mọi người cùng ô nên chỉ một lần tra). Ngoài điểm: tra theo vị trí người chấm.
+          lookupAddress={(lat, lng) => {
+            const at = insideLoc ? { lat: insideLoc.lat, lng: insideLoc.lng } : { lat, lng };
+            return whereAmI({ data: at }).then((r) => r.address);
+          }}
           onClose={() => setCameraFor(null)}
           onDenied={() => {
             const type = cameraFor;

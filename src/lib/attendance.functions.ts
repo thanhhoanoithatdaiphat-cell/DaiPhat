@@ -307,7 +307,7 @@ function roadOf(j: GeoJson): string {
  * Tra địa chỉ từ toạ độ (OpenStreetMap Nominatim), ưu tiên tên đường: "Số nhà + tên đường, phường/xã, quận/huyện, tỉnh/thành".
  * Lỗi hoặc quá chậm thì trả null, không chặn việc chấm công.
  */
-async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+async function fetchAddress(lat: number, lng: number): Promise<string | null> {
   let j = await nominatim(lat, lng, 18);
   if (!j) return null;
   // Chưa ra tên đường thì thử lại ở mức xa hơn một chút (đường lớn gần đó).
@@ -781,6 +781,67 @@ export const listHistory = createServerFn({ method: "POST" })
     return rows.map(mapPunch);
   });
 
+// Bộ nhớ đệm địa chỉ theo ô toạ độ (~11 m). Ba lớp: bộ nhớ của instance, bảng geocode_cache dùng chung, rồi mới tới OpenStreetMap.
+// Giờ cao điểm nhiều người đứng cùng một chỗ nên gần như chỉ lượt đầu tiên phải hỏi OpenStreetMap.
+const GEO_MEM_MAX = 500;
+const geoMem = new Map<string, string>();
+const geoInflight = new Map<string, Promise<string | null>>();
+const geoFailUntil = new Map<string, number>();
+
+function geoRemember(cell: string, address: string) {
+  if (geoMem.size >= GEO_MEM_MAX) {
+    const oldest = geoMem.keys().next().value;
+    if (oldest !== undefined) geoMem.delete(oldest);
+  }
+  geoMem.set(cell, address);
+}
+
+/** Địa chỉ từ toạ độ, có đệm. Không tra được thì trả null (không chặn chấm công) và nghỉ 60 giây cho ô đó, tránh dồn yêu cầu khi bị giới hạn. */
+async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+  const cell = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+  const hit = geoMem.get(cell);
+  if (hit) return hit;
+  // Nhiều người cùng ô, cùng lúc: chỉ một yêu cầu thật, những người còn lại chờ kết quả đó.
+  const pending = geoInflight.get(cell);
+  if (pending) return pending;
+  if ((geoFailUntil.get(cell) ?? 0) > Date.now()) return null;
+  const task = (async () => {
+    try {
+      const sql = await getSql();
+      const rows = await sql<{ address: string }>`select address from geocode_cache where cell = ${cell}`.catch(() => [] as { address: string }[]);
+      if (rows[0]?.address) {
+        geoRemember(cell, rows[0].address);
+        return rows[0].address;
+      }
+      const fresh = await fetchAddress(lat, lng);
+      if (fresh) {
+        geoRemember(cell, fresh);
+        await sql`insert into geocode_cache (cell, address) values (${cell}, ${fresh}) on conflict (cell) do nothing`.catch(() => {});
+      } else {
+        if (geoFailUntil.size > 1000) geoFailUntil.clear();
+        geoFailUntil.set(cell, Date.now() + 60_000);
+      }
+      return fresh;
+    } finally {
+      geoInflight.delete(cell);
+    }
+  })();
+  geoInflight.set(cell, task);
+  return task;
+}
+
+// Giới hạn mỗi người 20 lần tra mỗi phút để không ai dùng app làm cầu nối tới OpenStreetMap.
+const whereHits = new Map<string, number[]>();
+function allowWhereCall(userId: string): boolean {
+  const now = Date.now();
+  const recent = (whereHits.get(userId) ?? []).filter((t) => now - t < 60_000);
+  if (recent.length >= 20) return false;
+  recent.push(now);
+  if (whereHits.size > 2000) whereHits.clear();
+  whereHits.set(userId, recent);
+  return true;
+}
+
 /** Địa chỉ hiện tại của người dùng (hiện trên màn chấm công khi đang ngoài phạm vi). */
 export const whereAmI = createServerFn({ method: "POST" })
   .validator((input: { lat: number; lng: number }) => {
@@ -791,7 +852,8 @@ export const whereAmI = createServerFn({ method: "POST" })
   })
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    await requireProfile(context.userId);
+    // Đã xác thực ở authMiddleware; không cần đọc hồ sơ nên không tốn thêm kết nối cơ sở dữ liệu.
+    if (!allowWhereCall(context.userId)) return { address: null as string | null };
     return { address: await reverseGeocode(data.lat, data.lng) };
   });
 
@@ -846,52 +908,39 @@ export const punch = createServerFn({ method: "POST" })
     const todayBounds = dayRange(vnDateKey());
     const punchedAt = new Date().toISOString();
     // Các truy vấn không phụ thuộc nhau chạy cùng lúc (trước đây chạy nối đuôi, mỗi cái chờ cái trước).
-    const [recent, lastToday, locs, isHoliday, existingIns, existingOuts] = await Promise.all([
+    const [recent, dayRows, locs, isHoliday] = await Promise.all([
       sql<{ punched_at: unknown }>`
         select punched_at from attendances
         where user_id = ${profile.userId}
         order by punched_at desc
         limit 1
       `,
-      sql<{ type: "in" | "out" }>`
-        select type from attendances
+      // Một truy vấn cho các lượt hôm nay (trước đây ba truy vấn): lượt cuối, số lượt vào, số lượt ra.
+      sql<{ type: "in" | "out"; status: string }>`
+        select type, status from attendances
         where user_id = ${profile.userId}
           and punched_at >= ${todayBounds.start}::timestamptz
           and punched_at < ${todayBounds.end}::timestamptz
         order by punched_at desc
-        limit 1
       `,
       sql<{ name: string; lat: number; lng: number; radius_meters: number }>`
         select name, lat, lng, radius_meters from locations
         where company_id = ${profile.companyId} and is_active = true
       `,
       vnWeekday(punchedAt) === 0 ? Promise.resolve(true) : isHolidayDay(profile.companyId, vnDateKey(punchedAt)),
-      sql<{ n: number }>`
-        select count(*)::int as n from attendances
-        where user_id = ${profile.userId}
-          and type = 'in'
-          and punched_at >= ${todayBounds.start}::timestamptz
-          and punched_at < ${todayBounds.end}::timestamptz
-          and status in ('valid', 'corrected')
-      `,
-      sql<{ n: number }>`
-        select count(*)::int as n from attendances
-        where user_id = ${profile.userId}
-          and type = 'out'
-          and punched_at >= ${todayBounds.start}::timestamptz
-          and punched_at < ${todayBounds.end}::timestamptz
-          and status in ('valid', 'corrected')
-      `,
     ]);
+    const countedToday = dayRows.filter((row) => row.status === "valid" || row.status === "corrected");
+    const insToday = countedToday.filter((row) => row.type === "in").length;
+    const outsToday = countedToday.filter((row) => row.type === "out").length;
     if (recent[0]) {
       const delta = Date.now() - new Date(stamp(recent[0].punched_at)).getTime();
       if (delta >= 0 && delta < 60_000) {
         throw new Error("Bạn vừa chấm công. Đợi khoảng một phút rồi thử lại.");
       }
     }
-    const lastType = lastToday[0]?.type ?? null;
+    const lastType = dayRows[0]?.type ?? null;
     // Mỗi ngày đúng một lượt vào và một lượt ra.
-    if (data.type === "out" && Number(existingOuts[0]?.n ?? 0) > 0) {
+    if (data.type === "out" && outsToday > 0) {
       throw new Error(`Hôm nay bạn đã ra ca rồi. ${ONE_PAIR_HINT}`);
     }
     if (data.type === "in" && lastType === "in") {
@@ -900,7 +949,7 @@ export const punch = createServerFn({ method: "POST" })
     if (data.type === "out" && lastType !== "in") {
       throw new Error("Chưa có lần vào ca hôm nay. Hãy vào ca trước.");
     }
-    if (data.type === "in" && Number(existingIns[0]?.n ?? 0) > 0) {
+    if (data.type === "in" && insToday > 0) {
       throw new Error(`Hôm nay bạn đã vào ca rồi. ${ONE_PAIR_HINT}`);
     }
     if (locs.length === 0 && !settings.allowOffsite) {
@@ -935,7 +984,7 @@ export const punch = createServerFn({ method: "POST" })
     let overtimeMinutes = 0;
     let overtimeStatus: OvertimeStatus = "none";
     // Chỉ tính muộn cho lần VÀO đầu tiên trong ngày
-    const isFirstIn = data.type === "in" && Number(existingIns[0]?.n ?? 0) === 0;
+    const isFirstIn = data.type === "in" && insToday === 0;
     if (sunday) {
       if (data.type === "out") {
         const todayRows = await sql<{ type: "in" | "out"; punched_at: unknown }>`

@@ -1,5 +1,6 @@
 import "@/lib/polyfills";
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
+import { Analytics } from "@vercel/analytics/react";
 import appCss from "../styles.css?url";
 import { VnValidation } from "@/components/vn-validation";
 import { AppReady } from "@/components/app-ready";
@@ -62,6 +63,7 @@ export const Route = createRootRoute({
         <AppReady />
         <Outlet />
         <Scripts />
+        <Analytics />
       </body>
     </html>
   ),

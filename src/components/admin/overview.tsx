@@ -335,7 +335,7 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
                 <li key={i.key} className="border-t border-line px-5 py-3.5">
                   <p className="text-sm font-bold">{i.title}</p>
                   <p className="text-xs text-muted">{i.detail}</p>
-                  {i.userId === selfId ? (
+                  {i.userId === selfId && !(i.kind === "correction" && data.profile.role === "admin" && data.settings.adminSelfCorrect) ? (
                     <p className="mt-2 text-xs text-muted">Mục của bạn, cần người duyệt khác xử lý.</p>
                   ) : rejectKey === i.key ? (
                     <div className="mt-2 space-y-2">

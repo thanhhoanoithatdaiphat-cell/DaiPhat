@@ -31,6 +31,8 @@ export type Settings = {
   deviceLock: boolean;
   /** Chặn chấm công khi server thấy dấu hiệu giả GPS rõ ràng. Tắt thì chỉ ghi lại để quản trị xem. */
   gpsGuard: boolean;
+  /** Quản trị được tự sửa công của chính mình: đơn sửa công của quản trị được duyệt ngay, không cần người khác duyệt. */
+  adminSelfCorrect: boolean;
 };
 
 export type LocationRow = {

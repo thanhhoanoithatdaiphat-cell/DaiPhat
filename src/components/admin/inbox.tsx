@@ -29,6 +29,9 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
   const { data, corrections, leaves, reload } = ctx;
   const overtimeRequests = ctx.overtimeRequests ?? [];
   const selfId = data.profile.userId;
+  // Quản trị được tự duyệt đơn sửa công của mình khi công ty bật trong Cài đặt (các loại đơn khác vẫn cần người khác).
+  const selfCorrect = data.profile.role === "admin" && data.settings.adminSelfCorrect;
+  const isBlockedSelf = (item: Item) => item.userId === selfId && !(item.kind === "correction" && selfCorrect);
   const [tab, setTab] = useState<Tab>("all");
   const [cursor, setCursor] = useState(0);
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -111,7 +114,7 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
   };
 
   async function decide(items: Item[], decision: "approved" | "rejected", reason: string) {
-    const usable = items.filter((i) => i.userId !== selfId);
+    const usable = items.filter((i) => !isBlockedSelf(i));
     if (usable.length === 0) {
       setMessage("Không thể tự duyệt mục của chính mình.");
       return;
@@ -342,7 +345,7 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
               <Card title={current.name}>
                 <div className="space-y-4 p-5">
                   <Detail item={current} />
-                  {current.userId === selfId ? (
+                  {isBlockedSelf(current) ? (
                     <p className="text-sm text-muted">Đây là mục của bạn, cần người duyệt khác xử lý.</p>
                   ) : rejecting ? (
                     <div className="space-y-2">

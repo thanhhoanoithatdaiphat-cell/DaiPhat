@@ -59,6 +59,7 @@ const DEFAULT_SETTINGS: Settings = {
   allowOffsite: false,
   deviceLock: true,
   gpsGuard: false,
+  adminSelfCorrect: false,
 };
 
 type ProfileDb = {
@@ -135,6 +136,7 @@ function readSettings(raw: unknown): Settings {
     allowOffsite: obj.allowOffsite === true,
     deviceLock: obj.deviceLock !== false,
     gpsGuard: obj.gpsGuard === true,
+    adminSelfCorrect: obj.adminSelfCorrect === true,
   };
 }
 
@@ -1313,16 +1315,164 @@ export const createCorrection = createServerFn({ method: "POST" })
       limit 1
     `;
     if (open[0]) throw new Error("Đã có đơn chờ cho ngày và loại này.");
-    await sql`
+    const inserted = await sql<{ id: number }>`
       insert into correction_requests (
         user_id, company_id, attendance_date, punch_type, requested_time, kind, note
       ) values (
         ${profile.userId}, ${profile.companyId}, ${data.attendanceDate}::date,
         ${data.punchType}, ${data.requestedTime}, ${data.kind}, ${data.note}
       )
+      returning id
     `;
-    return { ok: true };
+    // Quản trị tự sửa công của mình (khi công ty bật): duyệt ngay, ghi rõ trong lịch sử là quản trị tự sửa.
+    if (profile.role === "admin" && settings.adminSelfCorrect && inserted[0]) {
+      const requestId = Number(inserted[0].id);
+      try {
+        await decideCorrection(profile, requestId, "approved", "Quản trị tự sửa công");
+      } catch (error) {
+        // Không để lại đơn treo khi áp dụng thất bại (ví dụ tháng đã chốt), tránh chặn lần gửi sau.
+        await sql`delete from correction_requests where id = ${requestId} and status = 'pending'`;
+        throw error;
+      }
+      return { ok: true, autoApproved: true };
+    }
+    return { ok: true, autoApproved: false };
   });
+
+type ProfileCtx = Awaited<ReturnType<typeof requireProfile>>;
+
+/** Duyệt hoặc từ chối một đơn sửa công. Dùng chung cho người duyệt và cho quản trị tự sửa công (khi công ty bật). */
+async function decideCorrection(
+  profile: ProfileCtx,
+  id: number,
+  decision: "approved" | "rejected",
+  reviewNote: string,
+): Promise<{ ok: true }> {
+  const sql = await getSql();
+  const rows = await sql<{
+    id: number;
+    user_id: string;
+    attendance_date: unknown;
+    punch_type: "in" | "out";
+    requested_time: string;
+    status: string;
+  }>`
+    select id, user_id, attendance_date, punch_type, requested_time, status
+    from correction_requests
+    where id = ${id} and company_id = ${profile.companyId}
+  `;
+  const row = rows[0];
+  if (!row || row.status !== "pending") throw new Error("Đơn không còn chờ duyệt");
+  const settings = readSettings((await sql<{ settings: unknown }>`select settings from companies where id = ${profile.companyId}`)[0]?.settings);
+  if (row.user_id === profile.userId) {
+    // Quản trị tự sửa công của mình: chỉ khi công ty bật trong Cài đặt. Người duyệt không phải quản trị, hoặc đang tắt thì vẫn cần người khác duyệt (trừ khi là người duyệt duy nhất).
+    const selfAllowed = profile.role === "admin" && settings.adminSelfCorrect;
+    if (!selfAllowed) {
+      const only = await isOnlyReviewer(profile.companyId, profile.userId);
+      if (!only) throw new Error("Không tự duyệt đơn của mình");
+    }
+  }
+  if (decision === "approved") {
+    const day = dateOnly(row.attendance_date);
+    await assertMonthOpen(profile.companyId, day);
+    const punchedAt = `${day}T${row.requested_time}:00+07:00`;
+    let lateMinutes = 0;
+    let overtimeMinutes = 0;
+    let overtimeStatus: OvertimeStatus = "none";
+    const clock = hmToMinutes(row.requested_time);
+    const sunday = vnWeekday(day + "T00:00:00+07:00") === 0 || (await isHolidayDay(profile.companyId, day));
+    const bounds = dayRange(day);
+    // Lần vào sớm nhất đang có trong ngày (giờ Việt Nam), dùng cho cả tính muộn và tính vào sớm.
+    const earliestIn = async () => {
+      const rows = await sql<{ punched_at: unknown }>`
+        select punched_at from attendances
+        where user_id = ${row.user_id}
+          and type = 'in'
+          and punched_at >= ${bounds.start}::timestamptz
+          and punched_at < ${bounds.end}::timestamptz
+          and status in ('valid', 'corrected')
+        order by punched_at asc
+        limit 1
+      `;
+      return rows[0] ? stamp(rows[0].punched_at) : null;
+    };
+    if (!sunday && row.punch_type === "in") {
+      // Chỉ tính muộn nếu đây sẽ là lần vào đầu tiên (hoặc sớm nhất)
+      const existingIn = await earliestIn();
+      const existing = existingIn ? [{ punched_at: existingIn }] : [];
+      const isEarliest = !existing[0] || new Date(punchedAt).getTime() <= new Date(stamp(existing[0].punched_at)).getTime();
+      if (isEarliest) {
+        const shiftStart = shiftStartMinutes(settings, clock);
+        lateMinutes = Math.max(0, clock - shiftStart);
+      }
+    }
+    if (!sunday && row.punch_type === "out") {
+      const firstInAt = await earliestIn();
+      const windows = await otRequestWindows(sql, row.user_id, day);
+      const ot = dayOvertime({
+        outClock: clock,
+        firstInClock: firstInAt ? vnMinutes(firstInAt) : null,
+        workStart: settings.workStart,
+        workEnd: settings.workEnd,
+        minMinutes: settings.overtimeMinMinutes,
+        coveredMinutes: requestCoverage(windows, settings.workEnd, clock),
+      });
+      overtimeMinutes = ot.minutes;
+      overtimeStatus = ot.counted ? "pending" : "none";
+    }
+    await sql`
+      insert into attendances (
+        user_id, company_id, type, punched_at, status, nearest_name, location_source, note,
+        late_minutes, overtime_minutes, overtime_status
+      ) values (
+        ${row.user_id}, ${profile.companyId}, ${row.punch_type}, ${punchedAt}::timestamptz,
+        'corrected', 'Đơn đã duyệt', 'manual', ${`Đơn #${row.id}`},
+        ${lateMinutes}, ${overtimeMinutes}, ${overtimeStatus}
+      )
+    `;
+    // Duyệt đơn sửa giờ VÀO sớm hơn giờ vào ca khi ngày đó đã có lượt ra: tính lại tăng ca của lượt ra (chỉ khi chưa được duyệt hay từ chối).
+    if (!sunday && row.punch_type === "in" && clock < hmToMinutes(settings.workStart)) {
+      const outs = await sql<{ id: number; punched_at: unknown; overtime_status: string }>`
+        select id, punched_at, overtime_status from attendances
+        where user_id = ${row.user_id}
+          and type = 'out'
+          and punched_at >= ${bounds.start}::timestamptz
+          and punched_at < ${bounds.end}::timestamptz
+          and status in ('valid', 'corrected')
+        order by punched_at desc
+        limit 1
+      `;
+      const out = outs[0];
+      if (out && (out.overtime_status === "none" || out.overtime_status === "pending")) {
+        const firstInAt = await earliestIn();
+        const windows = await otRequestWindows(sql, row.user_id, day);
+        const outClock = vnMinutes(stamp(out.punched_at));
+        const ot = dayOvertime({
+          outClock,
+          firstInClock: firstInAt ? vnMinutes(firstInAt) : null,
+          workStart: settings.workStart,
+          workEnd: settings.workEnd,
+          minMinutes: settings.overtimeMinMinutes,
+          coveredMinutes: requestCoverage(windows, settings.workEnd, outClock),
+        });
+        await sql`
+          update attendances
+          set overtime_minutes = ${ot.minutes}, overtime_status = ${ot.counted ? "pending" : "none"}
+          where id = ${out.id} and overtime_status in ('none', 'pending')
+        `;
+      }
+    }
+  }
+  await sql`
+    update correction_requests
+    set status = ${decision},
+        reviewed_by = ${profile.userId},
+        reviewed_at = now(),
+        review_note = ${reviewNote || null}
+    where id = ${row.id} and status = 'pending'
+  `;
+  return { ok: true };
+}
 
 export const reviewCorrection = createServerFn({ method: "POST" })
   .validator((input: { id: number; decision: "approved" | "rejected"; reviewNote: string }) => {
@@ -1341,126 +1491,7 @@ export const reviewCorrection = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const profile = await requireProfile(context.userId);
     if (!canReview(profile.role)) throw new Error("Bạn không có quyền duyệt đơn");
-    const sql = await getSql();
-    const rows = await sql<{
-      id: number;
-      user_id: string;
-      attendance_date: unknown;
-      punch_type: "in" | "out";
-      requested_time: string;
-      status: string;
-    }>`
-      select id, user_id, attendance_date, punch_type, requested_time, status
-      from correction_requests
-      where id = ${data.id} and company_id = ${profile.companyId}
-    `;
-    const row = rows[0];
-    if (!row || row.status !== "pending") throw new Error("Đơn không còn chờ duyệt");
-    if (row.user_id === profile.userId) {
-        const only = await isOnlyReviewer(profile.companyId, profile.userId);
-        if (!only) throw new Error("Không tự duyệt đơn của mình");
-      }
-    if (data.decision === "approved") {
-      const day = dateOnly(row.attendance_date);
-      await assertMonthOpen(profile.companyId, day);
-      const punchedAt = `${day}T${row.requested_time}:00+07:00`;
-      const settings = readSettings((await sql<{ settings: unknown }>`select settings from companies where id = ${profile.companyId}`)[0]?.settings);
-      let lateMinutes = 0;
-      let overtimeMinutes = 0;
-      let overtimeStatus: OvertimeStatus = "none";
-      const clock = hmToMinutes(row.requested_time);
-      const sunday = vnWeekday(day + "T00:00:00+07:00") === 0 || (await isHolidayDay(profile.companyId, day));
-      const bounds = dayRange(day);
-      // Lần vào sớm nhất đang có trong ngày (giờ Việt Nam), dùng cho cả tính muộn và tính vào sớm.
-      const earliestIn = async () => {
-        const rows = await sql<{ punched_at: unknown }>`
-          select punched_at from attendances
-          where user_id = ${row.user_id}
-            and type = 'in'
-            and punched_at >= ${bounds.start}::timestamptz
-            and punched_at < ${bounds.end}::timestamptz
-            and status in ('valid', 'corrected')
-          order by punched_at asc
-          limit 1
-        `;
-        return rows[0] ? stamp(rows[0].punched_at) : null;
-      };
-      if (!sunday && row.punch_type === "in") {
-        // Chỉ tính muộn nếu đây sẽ là lần vào đầu tiên (hoặc sớm nhất)
-        const existingIn = await earliestIn();
-        const existing = existingIn ? [{ punched_at: existingIn }] : [];
-        const isEarliest = !existing[0] || new Date(punchedAt).getTime() <= new Date(stamp(existing[0].punched_at)).getTime();
-        if (isEarliest) {
-          const shiftStart = shiftStartMinutes(settings, clock);
-          lateMinutes = Math.max(0, clock - shiftStart);
-        }
-      }
-      if (!sunday && row.punch_type === "out") {
-        const firstInAt = await earliestIn();
-        const windows = await otRequestWindows(sql, row.user_id, day);
-        const ot = dayOvertime({
-          outClock: clock,
-          firstInClock: firstInAt ? vnMinutes(firstInAt) : null,
-          workStart: settings.workStart,
-          workEnd: settings.workEnd,
-          minMinutes: settings.overtimeMinMinutes,
-          coveredMinutes: requestCoverage(windows, settings.workEnd, clock),
-        });
-        overtimeMinutes = ot.minutes;
-        overtimeStatus = ot.counted ? "pending" : "none";
-      }
-      await sql`
-        insert into attendances (
-          user_id, company_id, type, punched_at, status, nearest_name, location_source, note,
-          late_minutes, overtime_minutes, overtime_status
-        ) values (
-          ${row.user_id}, ${profile.companyId}, ${row.punch_type}, ${punchedAt}::timestamptz,
-          'corrected', 'Đơn đã duyệt', 'manual', ${`Đơn #${row.id}`},
-          ${lateMinutes}, ${overtimeMinutes}, ${overtimeStatus}
-        )
-      `;
-      // Duyệt đơn sửa giờ VÀO sớm hơn giờ vào ca khi ngày đó đã có lượt ra: tính lại tăng ca của lượt ra (chỉ khi chưa được duyệt hay từ chối).
-      if (!sunday && row.punch_type === "in" && clock < hmToMinutes(settings.workStart)) {
-        const outs = await sql<{ id: number; punched_at: unknown; overtime_status: string }>`
-          select id, punched_at, overtime_status from attendances
-          where user_id = ${row.user_id}
-            and type = 'out'
-            and punched_at >= ${bounds.start}::timestamptz
-            and punched_at < ${bounds.end}::timestamptz
-            and status in ('valid', 'corrected')
-          order by punched_at desc
-          limit 1
-        `;
-        const out = outs[0];
-        if (out && (out.overtime_status === "none" || out.overtime_status === "pending")) {
-          const firstInAt = await earliestIn();
-          const windows = await otRequestWindows(sql, row.user_id, day);
-          const outClock = vnMinutes(stamp(out.punched_at));
-          const ot = dayOvertime({
-            outClock,
-            firstInClock: firstInAt ? vnMinutes(firstInAt) : null,
-            workStart: settings.workStart,
-            workEnd: settings.workEnd,
-            minMinutes: settings.overtimeMinMinutes,
-            coveredMinutes: requestCoverage(windows, settings.workEnd, outClock),
-          });
-          await sql`
-            update attendances
-            set overtime_minutes = ${ot.minutes}, overtime_status = ${ot.counted ? "pending" : "none"}
-            where id = ${out.id} and overtime_status in ('none', 'pending')
-          `;
-        }
-      }
-    }
-    await sql`
-      update correction_requests
-      set status = ${data.decision},
-          reviewed_by = ${profile.userId},
-          reviewed_at = now(),
-          review_note = ${data.reviewNote || null}
-      where id = ${row.id} and status = 'pending'
-    `;
-    return { ok: true };
+    return decideCorrection(profile, data.id, data.decision, data.reviewNote);
   });
 
 export const listRankings = createServerFn({ method: "POST" })

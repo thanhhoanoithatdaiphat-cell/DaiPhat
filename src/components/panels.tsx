@@ -1284,6 +1284,7 @@ export function RequestsPanel({
   const [view, setView] = useState<"review" | "fix" | "leave" | "overtime" | "mine">("fix");
   const [rows, setRows] = useState<CorrectionRow[] | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [date, setDate] = useState(vnDateKey());
   const [punchType, setPunchType] = useState<"in" | "out">("in");
   const [requestedTime, setRequestedTime] = useState(workStart);
@@ -1315,9 +1316,11 @@ export function RequestsPanel({
     event.preventDefault();
     setBusy(true);
     setError("");
+    setNotice("");
     try {
-      await createCorrection({ data: { attendanceDate: date, punchType, requestedTime, kind, note } });
+      const res = await createCorrection({ data: { attendanceDate: date, punchType, requestedTime, kind, note } });
       setNote("");
+      setNotice(res.autoApproved ? "Đã sửa công. Đơn được duyệt ngay." : "");
       await load();
       await onChanged();
     } catch (err) {
@@ -1452,6 +1455,7 @@ export function RequestsPanel({
         <button className={`${primaryBtn} w-full`} type="submit" disabled={busy}>{busy ? "Đang gửi…" : "Gửi đơn"}</button>
       </form>
       ) : null}
+      {notice ? <p className="text-sm text-ok">{notice}</p> : null}
       {error ? <p className="text-sm text-clay">{error}</p> : null}
       {tab === "leave" ? <LeaveSection canReview={canReview} userId={userId} onChanged={onChanged} /> : null}
       {tab === "overtime" ? <OvertimeSection canReview={canReview} userId={userId} settings={settings ?? ({ workStart, workEnd, lunchStart: "11:30", lunchEnd: "13:30", overtimeMinMinutes: 30 } as Settings)} onChanged={onChanged} /> : null}
@@ -2429,6 +2433,13 @@ export function SettingsForm({ data, onChanged }: { data: WorkspaceData; onChang
         <span>
           Chặn chấm công khi GPS có dấu hiệu giả rõ ràng
           <span className="block text-xs text-muted">Tắt: chỉ ghi lại để quản trị xem trong mục Ngoài điểm. Nên xem vài ngày rồi mới bật.</span>
+        </span>
+      </label>
+      <label className="flex items-start gap-3 text-sm">
+        <input className="mt-1" type="checkbox" checked={settings.adminSelfCorrect} onChange={(e) => setSettings({ ...settings, adminSelfCorrect: e.target.checked })} />
+        <span>
+          Quản trị được tự sửa công của mình
+          <span className="block text-xs text-muted">Bật: đơn sửa công của quản trị được duyệt ngay, không cần người khác duyệt. Lịch sử vẫn ghi “Quản trị tự sửa công”. Tắt: quản trị cũng phải nhờ người duyệt khác.</span>
         </span>
       </label>
       {error ? <p className="text-sm text-clay">{error}</p> : null}

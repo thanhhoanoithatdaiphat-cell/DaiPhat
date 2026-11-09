@@ -1917,18 +1917,6 @@ type OtSession = "" | "lunch" | "evening" | "custom";
 
 const hmText = (minutes: number) => `${Math.floor(minutes / 60)} giờ${minutes % 60 ? ` ${minutes % 60} phút` : ""}`;
 
-/** Đoán buổi tăng ca: theo giờ đang mở form (nếu là hôm nay), nếu không thì theo đơn tăng ca gần nhất của chính người này. */
-function guessOtSession(date: string, mine: OvertimeRequestRow[], settings: Settings): OtSession {
-  const nowMin = vnMinutes(new Date().toISOString());
-  if (date === vnDateKey()) {
-    if (nowMin >= hmToMinutes(settings.workEnd) - 60) return "evening";
-    if (nowMin >= hmToMinutes(settings.lunchStart) - 30 && nowMin <= hmToMinutes(settings.lunchEnd) + 60) return "lunch";
-  }
-  const last = [...mine].filter((r) => r.status !== "rejected").sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-  if (!last) return "";
-  return hmToMinutes(last.startTime) >= hmToMinutes(settings.workEnd) ? "evening" : "lunch";
-}
-
 function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview: boolean; userId: string; settings: Settings; onChanged: () => Promise<void> }) {
   const [rows, setRows] = useState<OvertimeRequestRow[] | null>(null);
   const [error, setError] = useState("");
@@ -1936,7 +1924,6 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
   const [session, setSession] = useState<OtSession>("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [touched, setTouched] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -1976,14 +1963,7 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
     }
   }
 
-  // Chưa tự chọn thì app đoán sẵn buổi (người dùng vẫn thấy rõ và đổi được).
-  useEffect(() => {
-    if (touched || rows == null) return;
-    applySession(guessOtSession(date, rows.filter((r) => r.userId === userId), settings), date);
-  }, [rows, date, touched]); // eslint-disable-line react-hooks/exhaustive-deps
-
   function choose(next: OtSession) {
-    setTouched(true);
     applySession(next, date);
   }
 
@@ -1991,12 +1971,15 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
   const counted = ready ? countableOvertime(from, to, scheduleOf(settings)) : 0;
   const tooShort = ready && counted < settings.overtimeMinMinutes;
   const sessionName = session === "lunch" ? "BUỔI TRƯA" : session === "evening" ? "BUỔI TỐI" : "";
-  const guessed = !touched && session !== "";
 
   function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError("");
     setSent("");
+    if (session === "") {
+      setError("Xin chọn thời gian (buổi trưa, tối hoặc giờ khác).");
+      return;
+    }
     if (!ready) return;
     if (hmToMinutes(to) <= hmToMinutes(from)) {
       setError("Giờ xong việc phải sau giờ bắt đầu.");
@@ -2089,24 +2072,19 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
           Ngày làm
           <input className={fieldClass} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </label>
-        <div className="space-y-2">
-          <p className="text-base font-semibold">Bạn tăng ca buổi nào?</p>
-          <div className="grid grid-cols-3 gap-2">
-            {([["lunch", "Trưa", `${settings.lunchStart}–${settings.lunchEnd}`], ["evening", "Tối", `sau ${settings.workEnd}`], ["custom", "Giờ khác", ""]] as const).map(([v, label, sub]) => (
-              <button
-                key={v}
-                type="button"
-                aria-pressed={session === v}
-                onClick={() => choose(v)}
-                className={`rounded-lg border px-2 py-3 text-base font-semibold ${session === v ? "border-amber bg-ice/20" : "border-line"}`}
-              >
-                {label}
-                {sub ? <span className="block text-xs font-normal text-muted">{sub}</span> : null}
-              </button>
-            ))}
-          </div>
-          {guessed ? <p className="text-xs text-muted">App đoán là buổi {session === "lunch" ? "trưa" : "tối"}. Nếu sai, bạn bấm nút khác.</p> : null}
-        </div>
+        <label className="block space-y-1 text-base font-semibold">
+          Bạn tăng ca buổi nào?
+          <select
+            className={`${fieldClass} ${session === "" ? "text-muted" : "text-ink"}`}
+            value={session}
+            onChange={(e) => choose(e.target.value as OtSession)}
+          >
+            <option value="" disabled>Xin chọn thời gian</option>
+            <option value="lunch">Trưa ({settings.lunchStart}–{settings.lunchEnd})</option>
+            <option value="evening">Tối (sau {settings.workEnd})</option>
+            <option value="custom">Giờ khác</option>
+          </select>
+        </label>
         {session !== "" ? (
           <>
             <div className="grid grid-cols-2 gap-3">

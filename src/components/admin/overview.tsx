@@ -4,7 +4,7 @@ import { timesheetSheets } from "@/lib/timesheet-xlsx";
 import { Download, Search } from "lucide-react";
 import { errorText } from "@/components/ui";
 import { exportTimesheet, reviewCorrection, reviewLeave, reviewOvertime, reviewOvertimeRequest } from "@/lib/attendance.functions";
-import type { PersonRow } from "@/lib/attendance-types";
+import { correctionTimeText, type PersonRow } from "@/lib/attendance-types";
 import { todayLong, vnDateKey, vnMonthKey, vnTime, minutesToHm } from "@/lib/vn-time";
 import type { AdminCtx } from "./app";
 import { KIND_LABEL, LEAVE_LABEL, shortDate } from "./common";
@@ -127,8 +127,8 @@ export function OverviewView({ ctx }: { ctx: AdminCtx }) {
         title: `Sửa công · ${c.fullName}`,
         detail:
           c.kind === "quen"
-            ? `Quên chấm giờ ${c.punchType === "in" ? "vào" : "ra"} ngày ${shortDate(c.attendanceDate)}`
-            : `${KIND_LABEL[c.kind] ?? c.kind} · xin giờ ${c.punchType === "in" ? "vào" : "ra"} ${c.requestedTime} ngày ${shortDate(c.attendanceDate)}`,
+            ? `Quên chấm giờ ${c.pairedTime ? "vào và ra" : c.punchType === "in" ? "vào" : "ra"} ngày ${shortDate(c.attendanceDate)}`
+            : `${KIND_LABEL[c.kind] ?? c.kind} · xin giờ ${correctionTimeText(c).toLowerCase()} ngày ${shortDate(c.attendanceDate)}`,
         at: c.createdAt,
       }));
     const b: Pending[] = leaves

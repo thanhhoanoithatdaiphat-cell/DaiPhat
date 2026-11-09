@@ -27,6 +27,11 @@ export function Workspace({ user }: { user: AppUser }) {
   const [tab, setTab] = useState<Tab>("punch");
   const [askPassword, setAskPassword] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  // Ngày được mở sẵn ở tab Đơn → Sửa công khi bấm "Gửi đơn sửa công" ở thông báo nhắc.
+  const [fixDay, setFixDay] = useState<string | null>(null);
+  useEffect(() => {
+    if (tab !== "requests") setFixDay(null);
+  }, [tab]);
 
   useEffect(() => {
     needsPasswordChange()
@@ -64,6 +69,8 @@ export function Workspace({ user }: { user: AppUser }) {
 
   const canReview = data?.profile.role === "admin" || data?.profile.role === "approver";
   const showRanks = Boolean(data?.settings.rankingsEnabled);
+  // Số ngày thiếu giờ vào/ra chưa gửi đơn: hiện chấm đỏ ở tab Đơn để nhắc.
+  const missedOpen = (data?.missedDays ?? []).filter((d) => d.missing !== "both" && !d.pending).length;
   const manageBadge =
     (data?.offsiteToday.length ?? 0) + (data?.lateToday.length ?? 0) + (data?.overtimePending.length ?? 0);
   const items: { id: Tab; label: string; icon: typeof Clock }[] = [
@@ -105,7 +112,7 @@ export function Workspace({ user }: { user: AppUser }) {
           ) : null}
           {error ? <p className="px-4 pt-4 text-sm text-clay">{error}</p> : null}
           {!data && !error && !blocked ? <p className="px-5 pt-8 text-sm text-muted">Đang mở bảng công…</p> : null}
-          {data && punching ? <PunchPanel data={data} onChanged={load} onGoRequests={() => setTab("requests")} onGoHistory={() => setTab("history")} /> : null}
+          {data && punching ? <PunchPanel data={data} onChanged={load} onGoRequests={() => setTab("requests")} onGoHistory={() => setTab("history")} onFixDay={(day) => { setFixDay(day); setTab("requests"); }} /> : null}
           {data && tab === "history" ? (
             <div className="px-4 py-4">
               <HistoryPanel settings={data.settings} />
@@ -120,6 +127,8 @@ export function Workspace({ user }: { user: AppUser }) {
                 workStart={data.settings.workStart}
                 workEnd={data.settings.workEnd}
                 settings={data.settings}
+                missedDays={data.missedDays}
+                initialFixDay={fixDay}
                 onChanged={load}
               />
             </div>
@@ -162,7 +171,7 @@ export function Workspace({ user }: { user: AppUser }) {
                 key={item.id}
                 item={item}
                 active={item.id === "profile" ? profileTab : tab === item.id}
-                badge={item.id === "requests" ? data?.pendingCount ?? 0 : item.id === "profile" ? manageBadge : 0}
+                badge={item.id === "requests" ? (data?.pendingCount ?? 0) + missedOpen : item.id === "profile" ? manageBadge : 0}
                 onClick={() => setTab(item.id)}
               />
             ))}

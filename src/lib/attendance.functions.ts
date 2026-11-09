@@ -9,6 +9,7 @@ import type {
   LeaveKind,
   LeaveRow,
   LocationRow,
+  MissedDay,
   MonthGrid,
   MySummary,
   OvertimeRequestRow,
@@ -23,7 +24,7 @@ import type {
   Settings,
   WorkspaceData,
 } from "@/lib/attendance-types";
-import { dayRange, hmToMinutes, isEarlyOut, minutesToHm, monthRange, vnDateKey, vnMinutes, vnMonthKey, vnWeekday } from "@/lib/vn-time";
+import { dayRange, hmToMinutes, isEarlyOut, minutesToHm, monthRange, nextDateKey, vnDateKey, vnMinutes, vnMonthKey, vnWeekday } from "@/lib/vn-time";
 import { displayPhone, normalizeVnPhone, phoneFromLoginEmail, phoneLoginEmail } from "@/lib/phone";
 import {
   buildCell,
@@ -431,6 +432,72 @@ function mapLocation(row: {
   };
 }
 
+/**
+ * Các ngày gần đây (31 ngày, không kể hôm nay) mà nhân viên chưa chấm đủ giờ vào / giờ ra.
+ * Bỏ qua Chủ nhật, ngày lễ, ngày có đơn nghỉ đã duyệt, ngày trước ngày vào làm và tháng đã chốt công.
+ * Dùng cho danh sách "ngày thiếu công" ở tab Đơn và thông báo nhắc ở màn Chấm công.
+ */
+async function computeMissedDays(profile: ProfileRow): Promise<MissedDay[]> {
+  const sql = await getSql();
+  const today = vnDateKey();
+  const floor = vnDateKey(new Date(Date.now() - 31 * 86_400_000));
+  const first = profile.startedOn && profile.startedOn > floor ? profile.startedOn : floor;
+  if (first >= today) return [];
+  const start = `${first}T00:00:00+07:00`;
+  const end = `${today}T00:00:00+07:00`;
+  const [punchRows, holidayRows, leaveRows, lockRows, pendingRows] = await Promise.all([
+    sql<{ type: "in" | "out"; punched_at: unknown }>`
+      select type, punched_at from attendances
+      where user_id = ${profile.userId} and company_id = ${profile.companyId}
+        and punched_at >= ${start}::timestamptz and punched_at < ${end}::timestamptz
+        and status in ('valid', 'corrected')
+      order by punched_at asc
+    `,
+    sql<{ date: unknown }>`
+      select date from holidays where company_id = ${profile.companyId} and date >= ${first}::date and date < ${today}::date
+    `,
+    sql<{ leave_date: unknown }>`
+      select leave_date from leave_requests
+      where company_id = ${profile.companyId} and user_id = ${profile.userId} and status = 'approved'
+        and leave_date >= ${first}::date and leave_date < ${today}::date
+    `,
+    sql<{ month: string }>`select month from timesheet_locks where company_id = ${profile.companyId}`,
+    sql<{ attendance_date: unknown; punch_type: "in" | "out" }>`
+      select attendance_date, punch_type from correction_requests
+      where user_id = ${profile.userId} and status = 'pending' and attendance_date >= ${first}::date
+    `,
+  ]);
+  const byDay = new Map<string, { inAt: string | null; outAt: string | null }>();
+  for (const row of punchRows) {
+    const at = stamp(row.punched_at);
+    const day = vnDateKey(at);
+    const cur = byDay.get(day) ?? { inAt: null, outAt: null };
+    if (row.type === "in" && !cur.inAt) cur.inAt = at;
+    if (row.type === "out") cur.outAt = at;
+    byDay.set(day, cur);
+  }
+  const holidays = new Set(holidayRows.map((r) => dateOnly(r.date)));
+  const leaves = new Set(leaveRows.map((r) => dateOnly(r.leave_date)));
+  const locked = new Set(lockRows.map((r) => r.month));
+  const pendingByDay = new Map<string, Set<string>>();
+  for (const r of pendingRows) {
+    const d = dateOnly(r.attendance_date);
+    pendingByDay.set(d, (pendingByDay.get(d) ?? new Set()).add(r.punch_type));
+  }
+  const out: MissedDay[] = [];
+  for (let day = first; day < today; day = nextDateKey(day)) {
+    if (vnWeekday(`${day}T00:00:00+07:00`) === 0) continue;
+    if (holidays.has(day) || leaves.has(day) || locked.has(day.slice(0, 7))) continue;
+    const got = byDay.get(day) ?? { inAt: null, outAt: null };
+    if (got.inAt && got.outAt) continue;
+    const missing: MissedDay["missing"] = !got.inAt && !got.outAt ? "both" : !got.inAt ? "in" : "out";
+    const need = missing === "both" ? ["in", "out"] : [missing];
+    const pend = pendingByDay.get(day);
+    out.push({ day, missing, inAt: got.inAt, outAt: got.outAt, pending: Boolean(pend && need.every((t) => pend.has(t))) });
+  }
+  return out.reverse();
+}
+
 export const getWorkspace = createServerFn({ method: "POST" })
   .validator((input: { displayName?: string; email?: string }) => ({
     displayName: (input?.displayName ?? "").slice(0, 80),
@@ -707,7 +774,9 @@ export const getWorkspace = createServerFn({ method: "POST" })
       return { lateToday: lateRows.map(mapPunch), overtimePending: otRows.map(mapPunch) };
     }
     })();
-    const [locationRows, todayRows, pending, teamToday, offsiteToday, gpsFlagsToday, review] = await Promise.all([locationRowsP, todayRowsP, pendingP, teamTodayP, offsiteTodayP, gpsFlagsTodayP, reviewP]);
+    // Lỗi khi dò ngày thiếu công không được làm hỏng cả màn hình: nhắc nhở chỉ là phần thêm.
+    const missedDaysP = computeMissedDays(profile).catch((): MissedDay[] => []);
+    const [locationRows, todayRows, pending, teamToday, offsiteToday, gpsFlagsToday, review, missedDays] = await Promise.all([locationRowsP, todayRowsP, pendingP, teamTodayP, offsiteTodayP, gpsFlagsTodayP, reviewP, missedDaysP]);
     const locations = locationRows.map(mapLocation);
     const { lateToday, overtimePending } = review;
     return {
@@ -722,6 +791,7 @@ export const getWorkspace = createServerFn({ method: "POST" })
       gpsFlagsToday,
       lateToday,
       overtimePending,
+      missedDays,
     };
   });
 
@@ -1234,10 +1304,11 @@ export const listCorrections = createServerFn({ method: "GET" })
       created_at: unknown;
       reviewed_at: unknown;
       reviewer_name: string | null;
+      group_id: string | null;
     }>`
       select c.id, c.user_id, p.full_name, c.attendance_date, c.punch_type, c.requested_time,
              c.kind, c.note, c.status, c.review_note, c.created_at, c.reviewed_at,
-             r.full_name as reviewer_name
+             r.full_name as reviewer_name, c.group_id
       from correction_requests c
       join profiles p on p.user_id = c.user_id
       left join profiles r on r.user_id = c.reviewed_by
@@ -1246,21 +1317,43 @@ export const listCorrections = createServerFn({ method: "GET" })
       order by case when c.status = 'pending' then 0 else 1 end, c.created_at desc
       limit 80
     `;
-    return rows.map((row) => ({
-      id: Number(row.id),
-      userId: row.user_id,
-      fullName: row.full_name,
-      attendanceDate: dateOnly(row.attendance_date),
-      punchType: row.punch_type,
-      requestedTime: row.requested_time,
-      kind: row.kind,
-      note: row.note,
-      status: row.status,
-      reviewNote: row.review_note,
-      createdAt: stamp(row.created_at),
-      reviewedByName: row.reviewer_name,
-      reviewedAt: row.reviewed_at ? stamp(row.reviewed_at) : null,
+    const mapped = rows.map((row) => ({
+      row,
+      item: {
+        id: Number(row.id),
+        userId: row.user_id,
+        fullName: row.full_name,
+        attendanceDate: dateOnly(row.attendance_date),
+        punchType: row.punch_type,
+        requestedTime: row.requested_time,
+        kind: row.kind,
+        note: row.note,
+        status: row.status,
+        reviewNote: row.review_note,
+        createdAt: stamp(row.created_at),
+        reviewedByName: row.reviewer_name,
+        reviewedAt: row.reviewed_at ? stamp(row.reviewed_at) : null,
+        pairedTime: null as string | null,
+      } satisfies CorrectionRow,
     }));
+    // Đơn "thiếu cả vào và ra" có 2 dòng cùng group_id và cùng trạng thái: gộp thành một dòng (giờ vào kèm giờ ra).
+    const outByGroup = new Map<string, (typeof mapped)[number]>();
+    for (const m of mapped) {
+      if (m.row.group_id && m.row.punch_type === "out") outByGroup.set(`${m.row.group_id}|${m.row.status}`, m);
+    }
+    const merged = new Set<number>();
+    const result: CorrectionRow[] = [];
+    for (const m of mapped) {
+      if (m.row.group_id && m.row.punch_type === "in") {
+        const mate = outByGroup.get(`${m.row.group_id}|${m.row.status}`);
+        if (mate) {
+          m.item.pairedTime = mate.row.requested_time;
+          merged.add(mate.item.id);
+        }
+      }
+    }
+    for (const m of mapped) if (!merged.has(m.item.id)) result.push(m.item);
+    return result;
   });
 
 const KINDS = new Set(["quen", "gps", "congtac", "khac"]);
@@ -1269,20 +1362,33 @@ export const createCorrection = createServerFn({ method: "POST" })
   .validator(
     (input: {
       attendanceDate: string;
-      punchType: "in" | "out";
-      requestedTime: string;
       kind: string;
       note: string;
+      /** Một hoặc hai giờ cần ghi. Thiếu cả vào và ra thì gửi cả hai trong MỘT đơn. */
+      punches?: { type: "in" | "out"; time: string }[];
+      /** Cách gửi cũ (một giờ), vẫn được nhận. */
+      punchType?: "in" | "out";
+      requestedTime?: string;
     }) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(input.attendanceDate)) throw new Error("Ngày không hợp lệ");
-      if (input.punchType !== "in" && input.punchType !== "out") throw new Error("Chọn vào hoặc ra");
-      if (!isHm(input.requestedTime)) throw new Error("Giờ không hợp lệ");
+      const punches = input.punches ?? (input.punchType ? [{ type: input.punchType, time: input.requestedTime ?? "" }] : []);
+      if (punches.length < 1 || punches.length > 2) throw new Error("Chọn giờ vào hoặc giờ ra");
+      const seen = new Set<string>();
+      for (const item of punches) {
+        if (item.type !== "in" && item.type !== "out") throw new Error("Chọn vào hoặc ra");
+        if (!isHm(item.time)) throw new Error("Giờ không hợp lệ");
+        if (seen.has(item.type)) throw new Error("Mỗi loại chỉ gửi một giờ");
+        seen.add(item.type);
+      }
+      const inTime = punches.find((item) => item.type === "in")?.time;
+      const outTime = punches.find((item) => item.type === "out")?.time;
+      if (inTime && outTime && hmToMinutes(outTime) <= hmToMinutes(inTime)) throw new Error("Giờ ra phải sau giờ vào");
       if (!KINDS.has(input.kind)) throw new Error("Chọn lý do");
       const note = input.note.trim();
       if (note.length < 4) throw new Error("Ghi chú cần ít nhất 4 ký tự");
       if (note.length > 500) throw new Error("Ghi chú quá dài");
       if (input.attendanceDate > vnDateKey()) throw new Error("Không gửi đơn cho ngày tương lai");
-      return { ...input, note };
+      return { attendanceDate: input.attendanceDate, kind: input.kind, note, punches: punches.map((item) => ({ type: item.type, time: item.time })) };
     },
   )
   .middleware([authMiddleware])
@@ -1296,8 +1402,9 @@ export const createCorrection = createServerFn({ method: "POST" })
     `;
     const settings = readSettings(companies[0]?.settings);
     const { start, end } = monthRange(vnDateKey().slice(0, 7));
+    // Đơn gồm hai dòng (vào + ra) chỉ tính một lượt trong hạn mức.
     const counts = await sql<{ n: number }>`
-      select count(*)::int as n from correction_requests
+      select count(distinct coalesce(group_id, id::text))::int as n from correction_requests
       where user_id = ${profile.userId}
         and status <> 'rejected'
         and created_at >= ${start}::timestamptz
@@ -1306,32 +1413,46 @@ export const createCorrection = createServerFn({ method: "POST" })
     if (Number(counts[0]?.n ?? 0) >= settings.maxCorrections) {
       throw new Error(`Tháng này bạn đã dùng hết ${settings.maxCorrections} đơn sửa.`);
     }
-    const open = await sql<{ id: number }>`
-      select id from correction_requests
-      where user_id = ${profile.userId}
-        and attendance_date = ${data.attendanceDate}::date
-        and punch_type = ${data.punchType}
-        and status = 'pending'
-      limit 1
-    `;
-    if (open[0]) throw new Error("Đã có đơn chờ cho ngày và loại này.");
-    const inserted = await sql<{ id: number }>`
-      insert into correction_requests (
-        user_id, company_id, attendance_date, punch_type, requested_time, kind, note
-      ) values (
-        ${profile.userId}, ${profile.companyId}, ${data.attendanceDate}::date,
-        ${data.punchType}, ${data.requestedTime}, ${data.kind}, ${data.note}
-      )
-      returning id
-    `;
+    for (const item of data.punches) {
+      const open = await sql<{ id: number }>`
+        select id from correction_requests
+        where user_id = ${profile.userId}
+          and attendance_date = ${data.attendanceDate}::date
+          and punch_type = ${item.type}
+          and status = 'pending'
+        limit 1
+      `;
+      if (open[0]) throw new Error(item.type === "in" ? "Đã có đơn chờ cho giờ vào của ngày này." : "Đã có đơn chờ cho giờ ra của ngày này.");
+    }
+    // Giờ vào luôn được thêm trước giờ ra (khi duyệt, giờ ra cần biết giờ vào để tính tăng ca).
+    const ordered = [...data.punches].sort((a, b) => (a.type === b.type ? 0 : a.type === "in" ? -1 : 1));
+    const groupId = ordered.length > 1 ? globalThis.crypto.randomUUID() : null;
+    const insertedIds: number[] = [];
+    try {
+      for (const item of ordered) {
+        const inserted = await sql<{ id: number }>`
+          insert into correction_requests (
+            user_id, company_id, attendance_date, punch_type, requested_time, kind, note, group_id
+          ) values (
+            ${profile.userId}, ${profile.companyId}, ${data.attendanceDate}::date,
+            ${item.type}, ${item.time}, ${data.kind}, ${data.note}, ${groupId}
+          )
+          returning id
+        `;
+        if (inserted[0]) insertedIds.push(Number(inserted[0].id));
+      }
+    } catch (error) {
+      // Không để lại nửa đơn: xóa dòng đã thêm rồi báo lỗi.
+      for (const id of insertedIds) await sql`delete from correction_requests where id = ${id} and status = 'pending'`;
+      throw error;
+    }
     // Quản trị tự sửa công của mình (khi công ty bật): duyệt ngay, ghi rõ trong lịch sử là quản trị tự sửa.
-    if (profile.role === "admin" && settings.adminSelfCorrect && inserted[0]) {
-      const requestId = Number(inserted[0].id);
+    if (profile.role === "admin" && settings.adminSelfCorrect && insertedIds[0]) {
       try {
-        await decideCorrection(profile, requestId, "approved", "Quản trị tự sửa công");
+        await decideCorrectionGroup(profile, insertedIds[0], "approved", "Quản trị tự sửa công");
       } catch (error) {
         // Không để lại đơn treo khi áp dụng thất bại (ví dụ tháng đã chốt), tránh chặn lần gửi sau.
-        await sql`delete from correction_requests where id = ${requestId} and status = 'pending'`;
+        for (const id of insertedIds) await sql`delete from correction_requests where id = ${id} and status = 'pending'`;
         throw error;
       }
       return { ok: true, autoApproved: true };
@@ -1474,6 +1595,34 @@ async function decideCorrection(
   return { ok: true };
 }
 
+/**
+ * Duyệt / từ chối một đơn sửa công; nếu đơn thuộc nhóm "vào + ra" thì xử lý cả hai dòng cùng lúc (giờ vào trước).
+ * Chọn nhiều đơn rồi duyệt hàng loạt mà gặp cả hai dòng của một nhóm thì dòng thứ hai được bỏ qua êm, không báo lỗi.
+ */
+async function decideCorrectionGroup(
+  profile: ProfileCtx,
+  id: number,
+  decision: "approved" | "rejected",
+  reviewNote: string,
+): Promise<{ ok: true }> {
+  const sql = await getSql();
+  const base = await sql<{ group_id: string | null; status: string }>`
+    select group_id, status from correction_requests where id = ${id} and company_id = ${profile.companyId}
+  `;
+  const row = base[0];
+  if (!row) throw new Error("Đơn không còn chờ duyệt");
+  if (!row.group_id) return decideCorrection(profile, id, decision, reviewNote);
+  if (row.status === decision) return { ok: true };
+  const mates = await sql<{ id: number }>`
+    select id from correction_requests
+    where group_id = ${row.group_id} and company_id = ${profile.companyId} and status = 'pending'
+    order by case punch_type when 'in' then 0 else 1 end, id
+  `;
+  if (mates.length === 0) throw new Error("Đơn không còn chờ duyệt");
+  for (const mate of mates) await decideCorrection(profile, Number(mate.id), decision, reviewNote);
+  return { ok: true };
+}
+
 export const reviewCorrection = createServerFn({ method: "POST" })
   .validator((input: { id: number; decision: "approved" | "rejected"; reviewNote: string }) => {
     const id = Number(input.id);
@@ -1491,7 +1640,7 @@ export const reviewCorrection = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const profile = await requireProfile(context.userId);
     if (!canReview(profile.role)) throw new Error("Bạn không có quyền duyệt đơn");
-    return decideCorrection(profile, data.id, data.decision, data.reviewNote);
+    return decideCorrectionGroup(profile, data.id, data.decision, data.reviewNote);
   });
 
 export const listRankings = createServerFn({ method: "POST" })

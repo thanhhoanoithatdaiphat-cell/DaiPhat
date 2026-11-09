@@ -46,6 +46,7 @@ import type {
   LeaveRow,
   OvertimeRequestRow,
   LocationRow,
+  MissedDay,
   MySummary,
   PersonRow,
   PunchResult,
@@ -57,7 +58,7 @@ import type {
   Settings,
   WorkspaceData,
 } from "@/lib/attendance-types";
-import { scheduleOf } from "@/lib/attendance-types";
+import { correctionTimeText, overtimeSessionLabel, scheduleOf } from "@/lib/attendance-types";
 import { coordText, mapsUrl } from "@/lib/map-link";
 import { compareByCode } from "@/lib/employee-order";
 import {
@@ -71,6 +72,7 @@ import {
   daysInMonth,
   shiftMonth,
   vnDateKey,
+  vnMinutes,
   vnMonthKey,
   vnTime,
   vnWeekday,
@@ -303,16 +305,70 @@ function PunchSuccess({ info, lateFrom, onClose, onDetail }: { info: SuccessInfo
   );
 }
 
+/** Thông báo nhắc: hôm trước quên chấm giờ vào hoặc giờ ra. Chỉ nhắc các ngày thiếu MỘT giờ (ngày không chấm gì có thể là ngày nghỉ). */
+const REMINDER_DISMISS_KEY = "vaoca_reminder_dismissed";
+
+function MissedReminder({ days, onFix }: { days: MissedDay[]; onFix: (day: string) => void }) {
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return typeof window !== "undefined" && window.localStorage.getItem(REMINDER_DISMISS_KEY) === vnDateKey();
+    } catch {
+      return false;
+    }
+  });
+  const open = days.filter((d) => d.missing !== "both" && !d.pending);
+  const first = open[0];
+  if (!first || hidden) return null;
+  const yesterday = vnDateKey(new Date(Date.now() - 86_400_000));
+  const when = first.day === yesterday ? "Hôm qua" : formatVnDay(first.day);
+  const hmOf = (iso: string) => minutesToHm(vnMinutes(iso));
+  const text =
+    first.missing === "out"
+      ? `Bạn đã vào ca lúc ${first.inAt ? hmOf(first.inAt) : "--:--"} nhưng chưa chấm giờ ra.`
+      : `Bạn đã ra ca lúc ${first.outAt ? hmOf(first.outAt) : "--:--"} nhưng chưa chấm giờ vào.`;
+  return (
+    <div role="alert" className="mx-5 shrink-0 space-y-2 rounded-xl border border-clay bg-clay/15 px-3.5 py-3 md:mx-8">
+      <p className="text-base font-bold text-ink">
+        {when} bạn quên chấm giờ {first.missing === "out" ? "ra" : "vào"}
+      </p>
+      <p className="text-sm text-ink">{text}</p>
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" className={primaryBtn} onClick={() => onFix(first.day)}>
+          Gửi đơn sửa công
+        </button>
+        <button
+          type="button"
+          className={secondaryBtn}
+          onClick={() => {
+            try {
+              window.localStorage.setItem(REMINDER_DISMISS_KEY, vnDateKey());
+            } catch {
+              // Không lưu được thì chỉ ẩn trong lần mở này.
+            }
+            setHidden(true);
+          }}
+        >
+          Để sau
+        </button>
+      </div>
+      {open.length > 1 ? <p className="text-xs text-muted">Còn {open.length - 1} ngày khác cũng thiếu giờ. Xem ở mục Đơn → Sửa công.</p> : null}
+    </div>
+  );
+}
+
 export function PunchPanel({
   data,
   onChanged,
   onGoRequests,
   onGoHistory,
+  onFixDay,
 }: {
   data: WorkspaceData;
   onChanged: () => Promise<void>;
   onGoRequests: () => void;
   onGoHistory?: () => void;
+  /** Bấm "Gửi đơn sửa công" ở thông báo nhắc: mở tab Đơn → Sửa công với ngày đó. */
+  onFixDay?: (day: string) => void;
 }) {
   const [success, setSuccess] = useState<SuccessInfo | null>(null);
   const [cameraFor, setCameraFor] = useState<"in" | "out" | null>(null);
@@ -544,6 +600,8 @@ export function PunchPanel({
           <img src={data.profile.avatar || "/punch-logo-dark.png"} alt="" className="size-full object-cover" />
         </span>
       </section>
+
+      <MissedReminder days={data.missedDays ?? []} onFix={(day) => (onFixDay ? onFixDay(day) : onGoRequests())} />
 
       <div className="mx-5 flex shrink-0 items-center gap-3 rounded-xl border border-line bg-card px-3.5 py-2.5 md:mx-8">
         <MapPin className="size-5 shrink-0 text-amber" strokeWidth={2} />
@@ -1271,6 +1329,8 @@ export function RequestsPanel({
   workStart,
   workEnd,
   settings,
+  missedDays = [],
+  initialFixDay = null,
   onChanged,
 }: {
   canReview: boolean;
@@ -1279,18 +1339,16 @@ export function RequestsPanel({
   workStart: string;
   workEnd: string;
   settings?: Settings;
+  /** Ngày thiếu giờ vào/ra do app tự dò (xem getWorkspace). */
+  missedDays?: MissedDay[];
+  /** Ngày mở sẵn khi vào tab Sửa công (từ thông báo nhắc). */
+  initialFixDay?: string | null;
   onChanged: () => Promise<void>;
 }) {
   const [view, setView] = useState<"review" | "fix" | "leave" | "overtime" | "mine">("fix");
   const [rows, setRows] = useState<CorrectionRow[] | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [date, setDate] = useState(vnDateKey());
-  const [punchType, setPunchType] = useState<"in" | "out">("in");
-  const [requestedTime, setRequestedTime] = useState(workStart);
-  const [kind, setKind] = useState("quen");
-  const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
   const [reviewNotes, setReviewNotes] = useState<Record<number, string>>({});
 
   async function load() {
@@ -1312,24 +1370,6 @@ export function RequestsPanel({
     };
   }, []);
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      const res = await createCorrection({ data: { attendanceDate: date, punchType, requestedTime, kind, note } });
-      setNote("");
-      setNotice(res.autoApproved ? "Đã sửa công. Đơn được duyệt ngay." : "");
-      await load();
-      await onChanged();
-    } catch (err) {
-      setError(errorText(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function review(id: number, decision: "approved" | "rejected") {
     setError("");
     try {
@@ -1349,7 +1389,7 @@ export function RequestsPanel({
 
   const tabs: { id: typeof view; label: string; badge?: number }[] = [
     ...(canReview ? [{ id: "review" as const, label: "Chờ duyệt", badge: pending.length }] : []),
-    { id: "fix", label: "Sửa công" },
+    { id: "fix", label: "Sửa công", badge: missedDays.filter((d) => d.missing !== "both" && !d.pending).length },
     { id: "leave", label: "Xin nghỉ" },
     { id: "overtime", label: "Tăng ca" },
     { id: "mine", label: canReview ? "Tất cả" : "Đã gửi" },
@@ -1390,7 +1430,7 @@ export function RequestsPanel({
                   <p className="text-sm text-muted">{formatVnDay(row.attendanceDate)}</p>
                 </div>
                 <span className="rounded-full bg-sand px-2 py-1 text-xs font-semibold">
-                  {row.punchType === "in" ? "Vào" : "Ra"} {row.requestedTime}
+                  {correctionTimeText(row)}
                 </span>
               </div>
               <p className="text-sm">
@@ -1411,51 +1451,22 @@ export function RequestsPanel({
         </section>
       ) : null}
       {tab === "fix" ? (
-      <form className="space-y-3 rounded-xl border border-line bg-card p-3.5" onSubmit={submit}>
-        <h2 className="font-display text-2xl font-bold">Gửi đơn sửa công</h2>
-        <p className="text-sm text-muted">
-          Tháng này đã dùng {used}/{maxCorrections} đơn không bị từ chối. Người phụ trách sẽ duyệt.
-        </p>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="space-y-1 text-sm">
-            Ngày
-            <input className={fieldClass} type="date" value={date} max={vnDateKey()} onChange={(e) => setDate(e.target.value)} required />
-          </label>
-          <label className="space-y-1 text-sm">
-            Giờ cần ghi
-            <TimeField value={requestedTime} onChange={setRequestedTime} required />
-          </label>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="space-y-1 text-sm">
-            Loại
-            <select className={fieldClass} value={punchType} onChange={(e) => {
-                const next = e.target.value as "in" | "out";
-                setPunchType(next);
-                setRequestedTime(next === "in" ? workStart : workEnd);
-              }}>
-              <option value="in">Vào ca</option>
-              <option value="out">Ra ca</option>
-            </select>
-          </label>
-          <label className="space-y-1 text-sm">
-            Lý do
-            <select className={fieldClass} value={kind} onChange={(e) => setKind(e.target.value)}>
-              <option value="quen">Quên chấm</option>
-              <option value="gps">GPS lỗi</option>
-              <option value="congtac">Công tác ngoài</option>
-              <option value="khac">Khác</option>
-            </select>
-          </label>
-        </div>
-        <label className="block space-y-1 text-sm">
-          Ghi chú
-          <textarea className="min-h-24 w-full rounded-md border border-line bg-card px-3 py-2 text-base outline-none focus:border-amber" value={note} onChange={(e) => setNote(e.target.value)} required minLength={4} />
-        </label>
-        <button className={`${primaryBtn} w-full`} type="submit" disabled={busy}>{busy ? "Đang gửi…" : "Gửi đơn"}</button>
-      </form>
+        <FixSection
+          missedDays={missedDays}
+          initialFixDay={initialFixDay}
+          workStart={workStart}
+          workEnd={workEnd}
+          used={used}
+          maxCorrections={maxCorrections}
+          onSent={async (auto) => {
+            setError("");
+            setNotice(auto ? "Đã sửa công. Đơn được duyệt ngay." : "Đã gửi đơn sửa công. Người phụ trách sẽ duyệt.");
+            await load();
+            await onChanged();
+          }}
+        />
       ) : null}
-      {notice ? <p className="text-sm text-ok">{notice}</p> : null}
+      {notice ? <p className="text-base font-semibold text-ok">{notice}</p> : null}
       {error ? <p className="text-sm text-clay">{error}</p> : null}
       {tab === "leave" ? <LeaveSection canReview={canReview} userId={userId} onChanged={onChanged} /> : null}
       {tab === "overtime" ? <OvertimeSection canReview={canReview} userId={userId} settings={settings ?? ({ workStart, workEnd, lunchStart: "11:30", lunchEnd: "13:30", overtimeMinMinutes: 30 } as Settings)} onChanged={onChanged} /> : null}
@@ -1473,7 +1484,7 @@ export function RequestsPanel({
               </Badge>
             </div>
             <p className="mt-1 text-sm text-muted">
-              {formatVnDay(row.attendanceDate)} · {row.punchType === "in" ? "Vào" : "Ra"} {row.requestedTime} · {KIND_LABEL[row.kind] ?? row.kind}
+              {formatVnDay(row.attendanceDate)} · {correctionTimeText(row)} · {KIND_LABEL[row.kind] ?? row.kind}
             </p>
             <p className="mt-1 text-sm">{row.note}</p>
             {row.reviewNote ? <p className="mt-1 text-sm text-muted">Ghi chú duyệt: {row.reviewNote}</p> : null}
@@ -1482,6 +1493,282 @@ export function RequestsPanel({
       </section>
       ) : null}
     </div>
+  );
+}
+
+type FixTarget = { day: string; missing: "in" | "out" | "both" | null; inAt: string | null; outAt: string | null };
+
+const hmOfIso = (iso: string) => minutesToHm(vnMinutes(iso));
+
+function defaultFixNote(kind: string, mode: "in" | "out" | "both" | ""): string {
+  const what = mode === "in" ? "giờ vào" : mode === "out" ? "giờ ra" : "giờ vào và giờ ra";
+  if (!mode) return "";
+  if (kind === "quen") return `Quên chấm ${what}`;
+  if (kind === "gps") return `GPS lỗi, không chấm được ${what}`;
+  if (kind === "congtac") return `Công tác ngoài, chưa chấm ${what}`;
+  return "";
+}
+
+/** Tab "Sửa công": liệt kê các ngày app tự thấy thiếu giờ, bấm vào là mở form đã điền sẵn. */
+function FixSection({
+  missedDays,
+  initialFixDay,
+  workStart,
+  workEnd,
+  used,
+  maxCorrections,
+  onSent,
+}: {
+  missedDays: MissedDay[];
+  initialFixDay: string | null;
+  workStart: string;
+  workEnd: string;
+  used: number;
+  maxCorrections: number;
+  onSent: (autoApproved: boolean) => Promise<void>;
+}) {
+  const [target, setTarget] = useState<FixTarget | null>(() => {
+    const hit = initialFixDay ? missedDays.find((d) => d.day === initialFixDay && !d.pending) : undefined;
+    return hit ? { day: hit.day, missing: hit.missing, inAt: hit.inAt, outAt: hit.outAt } : null;
+  });
+  const [pickOther, setPickOther] = useState(false);
+  const [otherDate, setOtherDate] = useState(vnDateKey(new Date(Date.now() - 86_400_000)));
+  const [looking, setLooking] = useState(false);
+  const yesterday = vnDateKey(new Date(Date.now() - 86_400_000));
+
+  async function openOther() {
+    setLooking(true);
+    try {
+      const rows = await listHistory({ data: otherDate.slice(0, 7) });
+      const ofDay = rows.filter((r) => vnDateKey(r.punchedAt) === otherDate);
+      const inRow = ofDay.find((r) => r.type === "in");
+      const outRow = [...ofDay].reverse().find((r) => r.type === "out");
+      const missing = !inRow && !outRow ? "both" : !inRow ? "in" : !outRow ? "out" : null;
+      setTarget({ day: otherDate, missing, inAt: inRow?.punchedAt ?? null, outAt: outRow?.punchedAt ?? null });
+    } catch {
+      setTarget({ day: otherDate, missing: null, inAt: null, outAt: null });
+    } finally {
+      setLooking(false);
+    }
+  }
+
+  if (target) {
+    return (
+      <FixForm
+        key={target.day}
+        target={target}
+        workStart={workStart}
+        workEnd={workEnd}
+        used={used}
+        maxCorrections={maxCorrections}
+        onBack={() => setTarget(null)}
+        onSent={async (auto) => {
+          setTarget(null);
+          setPickOther(false);
+          await onSent(auto);
+        }}
+      />
+    );
+  }
+
+  const partial = missedDays.filter((d) => d.missing !== "both");
+  const whole = missedDays.filter((d) => d.missing === "both");
+  const toTarget = (d: MissedDay): FixTarget => ({ day: d.day, missing: d.missing, inAt: d.inAt, outAt: d.outAt });
+  const dayTitle = (day: string) => `${formatVnDay(day)}${day === yesterday ? " (hôm qua)" : ""}`;
+
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="font-display text-2xl font-bold">Sửa công</h2>
+        <p className="text-sm text-muted">
+          Tháng này đã dùng {used}/{maxCorrections} đơn. Bấm vào ngày bị thiếu, giờ sẽ được điền sẵn cho bạn.
+        </p>
+      </div>
+      {partial.length === 0 ? (
+        <p className="rounded-xl border border-line bg-card p-4 text-base font-semibold text-ok">✓ Những ngày gần đây bạn đã chấm đủ giờ vào và ra.</p>
+      ) : null}
+      {partial.map((d) => (
+        <article key={d.day} className="space-y-2 rounded-xl border border-line bg-card p-3.5">
+          <p className="text-lg font-bold">{dayTitle(d.day)}</p>
+          <p className="text-sm">
+            {d.missing === "out"
+              ? `Đã vào ${d.inAt ? hmOfIso(d.inAt) : "--:--"} · chưa có giờ ra`
+              : `Đã ra ${d.outAt ? hmOfIso(d.outAt) : "--:--"} · chưa có giờ vào`}
+          </p>
+          {d.pending ? (
+            <Badge tone="muted">Đã gửi đơn, đang chờ duyệt</Badge>
+          ) : (
+            <button type="button" className={`${primaryBtn} w-full`} onClick={() => setTarget(toTarget(d))}>
+              Sửa ngày này
+            </button>
+          )}
+        </article>
+      ))}
+      {whole.length > 0 ? (
+        <details className="rounded-xl border border-line bg-card p-3.5">
+          <summary className="cursor-pointer text-sm font-semibold">Ngày không có lượt chấm nào ({whole.length} ngày)</summary>
+          <p className="mt-2 text-xs text-muted">Chỉ bấm nếu hôm đó bạn có đi làm. Ngày nghỉ thì bỏ qua.</p>
+          <div className="mt-2 space-y-2">
+            {whole.map((d) => (
+              <div key={d.day} className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium">{dayTitle(d.day)}</p>
+                {d.pending ? (
+                  <Badge tone="muted">Chờ duyệt</Badge>
+                ) : (
+                  <button type="button" className="rounded-lg border border-line px-3 py-2 text-sm font-semibold" onClick={() => setTarget(toTarget(d))}>
+                    Hôm đó tôi có đi làm
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
+      {pickOther ? (
+        <div className="space-y-2 rounded-xl border border-line bg-card p-3.5">
+          <label className="block space-y-1 text-sm">
+            Chọn ngày cần sửa
+            <input className={fieldClass} type="date" value={otherDate} max={vnDateKey()} onChange={(e) => setOtherDate(e.target.value)} />
+          </label>
+          <button type="button" className={`${primaryBtn} w-full`} disabled={looking || !otherDate} onClick={() => void openOther()}>
+            {looking ? "Đang kiểm tra…" : "Tiếp tục"}
+          </button>
+        </div>
+      ) : (
+        <button type="button" className={`${secondaryBtn} w-full`} onClick={() => setPickOther(true)}>
+          Sửa ngày khác
+        </button>
+      )}
+    </section>
+  );
+}
+
+function FixForm({
+  target,
+  workStart,
+  workEnd,
+  used,
+  maxCorrections,
+  onBack,
+  onSent,
+}: {
+  target: FixTarget;
+  workStart: string;
+  workEnd: string;
+  used: number;
+  maxCorrections: number;
+  onBack: () => void;
+  onSent: (autoApproved: boolean) => Promise<void>;
+}) {
+  const [mode, setMode] = useState<"in" | "out" | "both" | "">(target.missing ?? "");
+  const [timeIn, setTimeIn] = useState(target.inAt ? hmOfIso(target.inAt) : workStart);
+  const [timeOut, setTimeOut] = useState(target.outAt ? hmOfIso(target.outAt) : workEnd);
+  const [kind, setKind] = useState("quen");
+  const [note, setNote] = useState(() => defaultFixNote("quen", target.missing ?? ""));
+  const [noteTouched, setNoteTouched] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  function chooseMode(next: "in" | "out" | "both") {
+    setMode(next);
+    if (!noteTouched) setNote(defaultFixNote(kind, next));
+  }
+  function chooseKind(next: string) {
+    setKind(next);
+    if (!noteTouched) setNote(defaultFixNote(next, mode));
+  }
+
+  const have = [target.inAt ? `Vào ${hmOfIso(target.inAt)}` : "", target.outAt ? `Ra ${hmOfIso(target.outAt)}` : ""].filter(Boolean).join(" · ");
+  const wantText = mode === "in" ? `Vào ${timeIn}` : mode === "out" ? `Ra ${timeOut}` : `Vào ${timeIn} · Ra ${timeOut}`;
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!mode) return;
+    setBusy(true);
+    setError("");
+    try {
+      const punches =
+        mode === "both"
+          ? [{ type: "in" as const, time: timeIn }, { type: "out" as const, time: timeOut }]
+          : [{ type: mode, time: mode === "in" ? timeIn : timeOut }];
+      const finalNote = note.trim().length >= 4 ? note.trim() : defaultFixNote(kind, mode) || "Sửa công";
+      const res = await createCorrection({ data: { attendanceDate: target.day, kind, note: finalNote, punches } });
+      await onSent(res.autoApproved);
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="space-y-3 rounded-xl border border-line bg-card p-3.5" onSubmit={submit} noValidate>
+      <button type="button" className="text-sm font-semibold text-amber" onClick={onBack}>
+        ← Chọn ngày khác
+      </button>
+      <h2 className="font-display text-2xl font-bold">Sửa công · {formatVnDay(target.day)}</h2>
+      {have ? <p className="text-sm text-muted">Ngày này đã có: {have}</p> : <p className="text-sm text-muted">Ngày này chưa có lượt chấm nào.</p>}
+      {mode === "" ? (
+        <div className="space-y-2">
+          <p className="text-base font-semibold">Bạn muốn sửa giờ nào?</p>
+          <div className="grid grid-cols-3 gap-2">
+            {([["in", "Giờ vào"], ["out", "Giờ ra"], ["both", "Cả hai"]] as const).map(([v, label]) => (
+              <button key={v} type="button" className="rounded-lg border border-line px-2 py-3 text-base font-semibold" onClick={() => chooseMode(v)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="text-sm font-semibold text-amber">
+            {mode === "both" ? "Thiếu cả giờ vào và giờ ra" : mode === "in" ? "Thiếu giờ vào" : "Thiếu giờ ra"}
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            {mode !== "out" ? (
+              <label className="space-y-1 text-sm">
+                Giờ vào
+                <TimeField value={timeIn} onChange={setTimeIn} />
+              </label>
+            ) : null}
+            {mode !== "in" ? (
+              <label className="space-y-1 text-sm">
+                Giờ ra
+                <TimeField value={timeOut} onChange={setTimeOut} />
+              </label>
+            ) : null}
+          </div>
+          <label className="block space-y-1 text-sm">
+            Lý do
+            <select className={fieldClass} value={kind} onChange={(e) => chooseKind(e.target.value)}>
+              <option value="quen">Quên chấm</option>
+              <option value="gps">GPS lỗi</option>
+              <option value="congtac">Công tác ngoài</option>
+              <option value="khac">Khác</option>
+            </select>
+          </label>
+          <label className="block space-y-1 text-sm">
+            Ghi chú (có thể sửa)
+            <textarea
+              className="min-h-16 w-full rounded-md border border-line bg-card px-3 py-2 text-base outline-none focus:border-amber"
+              value={note}
+              onChange={(e) => {
+                setNote(e.target.value);
+                setNoteTouched(true);
+              }}
+            />
+          </label>
+          <p className="rounded-lg bg-ice/15 px-3 py-2 text-sm font-semibold">Bạn xin ghi: {wantText} ngày {formatVnDay(target.day)}</p>
+          <p className="text-xs text-muted">
+            Tháng này đã dùng {used}/{maxCorrections} đơn. {mode === "both" ? "Đơn này chỉ tính 1 lượt." : ""}
+          </p>
+          <button className={`${primaryBtn} w-full`} type="submit" disabled={busy}>
+            {busy ? "Đang gửi…" : "Gửi đơn"}
+          </button>
+        </>
+      )}
+      {error ? <p className="text-sm font-semibold text-clay">{error}</p> : null}
+    </form>
   );
 }
 
@@ -1626,14 +1913,33 @@ function LeaveSection({ canReview, userId, onChanged }: { canReview: boolean; us
   );
 }
 
+type OtSession = "" | "lunch" | "evening" | "custom";
+
+const hmText = (minutes: number) => `${Math.floor(minutes / 60)} giờ${minutes % 60 ? ` ${minutes % 60} phút` : ""}`;
+
+/** Đoán buổi tăng ca: theo giờ đang mở form (nếu là hôm nay), nếu không thì theo đơn tăng ca gần nhất của chính người này. */
+function guessOtSession(date: string, mine: OvertimeRequestRow[], settings: Settings): OtSession {
+  const nowMin = vnMinutes(new Date().toISOString());
+  if (date === vnDateKey()) {
+    if (nowMin >= hmToMinutes(settings.workEnd) - 60) return "evening";
+    if (nowMin >= hmToMinutes(settings.lunchStart) - 30 && nowMin <= hmToMinutes(settings.lunchEnd) + 60) return "lunch";
+  }
+  const last = [...mine].filter((r) => r.status !== "rejected").sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  if (!last) return "";
+  return hmToMinutes(last.startTime) >= hmToMinutes(settings.workEnd) ? "evening" : "lunch";
+}
+
 function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview: boolean; userId: string; settings: Settings; onChanged: () => Promise<void> }) {
   const [rows, setRows] = useState<OvertimeRequestRow[] | null>(null);
   const [error, setError] = useState("");
   const [date, setDate] = useState(vnDateKey());
-  const [from, setFrom] = useState(settings.lunchStart);
-  const [to, setTo] = useState(settings.lunchEnd);
+  const [session, setSession] = useState<OtSession>("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [touched, setTouched] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [sent, setSent] = useState("");
   const [reviewNotes, setReviewNotes] = useState<Record<number, string>>({});
 
@@ -1654,21 +1960,68 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
     };
   }, []);
 
-  const counted = countableOvertime(from, to, scheduleOf(settings));
-  const tooShort = counted < settings.overtimeMinMinutes;
+  function applySession(next: OtSession, forDate: string) {
+    setSession(next);
+    if (next === "lunch") {
+      setFrom(settings.lunchStart);
+      setTo(settings.lunchEnd);
+    } else if (next === "evening") {
+      setFrom(settings.workEnd);
+      const nowMin = vnMinutes(new Date().toISOString());
+      // Hôm nay và đã quá giờ ra ca: điền sẵn giờ hiện tại (làm tròn 15 phút) làm giờ xong việc.
+      setTo(forDate === vnDateKey() && nowMin > hmToMinutes(settings.workEnd) ? minutesToHm(Math.min(23 * 60 + 59, Math.round(nowMin / 15) * 15)) : "");
+    } else {
+      setFrom("");
+      setTo("");
+    }
+  }
 
-  async function submit(event: FormEvent) {
+  // Chưa tự chọn thì app đoán sẵn buổi (người dùng vẫn thấy rõ và đổi được).
+  useEffect(() => {
+    if (touched || rows == null) return;
+    applySession(guessOtSession(date, rows.filter((r) => r.userId === userId), settings), date);
+  }, [rows, date, touched]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function choose(next: OtSession) {
+    setTouched(true);
+    applySession(next, date);
+  }
+
+  const ready = session !== "" && from !== "" && to !== "";
+  const counted = ready ? countableOvertime(from, to, scheduleOf(settings)) : 0;
+  const tooShort = ready && counted < settings.overtimeMinMinutes;
+  const sessionName = session === "lunch" ? "BUỔI TRƯA" : session === "evening" ? "BUỔI TỐI" : "";
+  const guessed = !touched && session !== "";
+
+  function onSubmit(event: FormEvent) {
     event.preventDefault();
-    setBusy(true);
     setError("");
     setSent("");
+    if (!ready) return;
+    if (hmToMinutes(to) <= hmToMinutes(from)) {
+      setError("Giờ xong việc phải sau giờ bắt đầu.");
+      return;
+    }
+    if (tooShort) {
+      setError(`Chỉ tính giờ nghỉ trưa (${settings.lunchStart}–${settings.lunchEnd}) và sau ${settings.workEnd}. Hiện mới được ${minutesToHm(counted)}, cần từ ${settings.overtimeMinMinutes} phút trở lên.`);
+      return;
+    }
+    setConfirming(true);
+  }
+
+  async function send() {
+    setBusy(true);
+    setError("");
     try {
-      const res = await createOvertimeRequest({ data: { workDate: date, startTime: from, endTime: to, note } });
+      const fallback = session === "lunch" ? "Tăng ca buổi trưa" : session === "evening" ? "Tăng ca buổi tối" : "Tăng ca";
+      const res = await createOvertimeRequest({ data: { workDate: date, startTime: from, endTime: to, note: note.trim().length >= 3 ? note.trim() : fallback } });
       setNote("");
-      setSent(`Đã gửi đơn, được tính ${minutesToHm(res.minutes)}.`);
+      setConfirming(false);
+      setSent(`Đã gửi đơn, được tính ${hmText(res.minutes)}.`);
       await load();
       await onChanged();
     } catch (err) {
+      setConfirming(false);
       setError(errorText(err));
     } finally {
       setBusy(false);
@@ -1690,6 +2043,7 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
   const mine = (rows ?? []).filter((row) => row.userId === userId);
   const statusTone = (s: OvertimeRequestRow["status"]) => (s === "approved" ? "ok" : s === "rejected" ? "late" : "muted");
   const statusText = (s: OvertimeRequestRow["status"]) => (s === "approved" ? "Đã duyệt" : s === "rejected" ? "Từ chối" : "Chờ duyệt");
+  const endChips = [60, 120, 180].map((add) => minutesToHm(Math.min(23 * 60 + 59, hmToMinutes(settings.workEnd) + add)));
 
   return (
     <div className="space-y-4">
@@ -1706,7 +2060,10 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
                   <p className="font-semibold">{row.fullName}</p>
                   <p className="text-sm text-muted">{formatVnDay(row.workDate)} · {row.startTime}–{row.endTime}</p>
                 </div>
-                <span className="rounded-full bg-sand px-2 py-1 text-xs font-semibold">Tính {minutesToHm(row.minutes)}</span>
+                <div className="flex flex-col items-end gap-1">
+                  <span className="rounded-full bg-amber px-2 py-1 text-xs font-bold text-night">{overtimeSessionLabel(row.startTime, row.endTime, settings)}</span>
+                  <span className="rounded-full bg-sand px-2 py-1 text-xs font-semibold">Tính {minutesToHm(row.minutes)}</span>
+                </div>
               </div>
               <p className="text-sm">{row.note}</p>
               <input
@@ -1723,69 +2080,100 @@ function OvertimeSection({ canReview, userId, settings, onChanged }: { canReview
           ))}
         </section>
       ) : null}
-      <form className="space-y-3 rounded-xl border border-line bg-card p-3.5" onSubmit={submit}>
+      <form className="space-y-3 rounded-xl border border-line bg-card p-3.5" onSubmit={onSubmit} noValidate>
         <h2 className="font-display text-2xl font-semibold">Xin tăng ca</h2>
         <p className="text-sm text-muted">
-          Dùng khi tăng ca vào giờ nghỉ trưa ({settings.lunchStart}–{settings.lunchEnd}), hoặc buổi tối sau {settings.workEnd} mà bạn đã lỡ bấm ra ca. Nếu chưa bấm ra thì cứ chấm ra lúc xong việc, hệ thống tự tính phần sau {settings.workEnd}.
+          Tăng ca buổi tối mà chưa bấm Ra ca thì không cần gửi đơn: cứ bấm Ra ca khi xong việc, app tự tính phần sau {settings.workEnd}.
         </p>
         <label className="block space-y-1 text-sm">
           Ngày làm
-          <input className={fieldClass} type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+          <input className={fieldClass} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </label>
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            className={`rounded-lg border px-3 py-2 text-sm font-semibold ${from === settings.lunchStart && to === settings.lunchEnd ? "border-amber bg-ice/20" : "border-line"}`}
-            onClick={() => {
-              setFrom(settings.lunchStart);
-              setTo(settings.lunchEnd);
-            }}
-          >
-            Cả buổi trưa
-            <span className="block text-xs font-normal text-muted">{settings.lunchStart}–{settings.lunchEnd}</span>
-          </button>
-          <button
-            type="button"
-            className={`rounded-lg border px-3 py-2 text-sm font-semibold ${from === settings.workEnd ? "border-amber bg-ice/20" : "border-line"}`}
-            onClick={() => {
-              setFrom(settings.workEnd);
-              setTo(minutesToHm(Math.min(23 * 60 + 59, hmToMinutes(settings.workEnd) + 180)));
-            }}
-          >
-            Buổi tối
-            <span className="block text-xs font-normal text-muted">từ {settings.workEnd}, sửa giờ kết thúc</span>
-          </button>
+        <div className="space-y-2">
+          <p className="text-base font-semibold">Bạn tăng ca buổi nào?</p>
+          <div className="grid grid-cols-3 gap-2">
+            {([["lunch", "Trưa", `${settings.lunchStart}–${settings.lunchEnd}`], ["evening", "Tối", `sau ${settings.workEnd}`], ["custom", "Giờ khác", ""]] as const).map(([v, label, sub]) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={session === v}
+                onClick={() => choose(v)}
+                className={`rounded-lg border px-2 py-3 text-base font-semibold ${session === v ? "border-amber bg-ice/20" : "border-line"}`}
+              >
+                {label}
+                {sub ? <span className="block text-xs font-normal text-muted">{sub}</span> : null}
+              </button>
+            ))}
+          </div>
+          {guessed ? <p className="text-xs text-muted">App đoán là buổi {session === "lunch" ? "trưa" : "tối"}. Nếu sai, bạn bấm nút khác.</p> : null}
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="space-y-1 text-sm">
-            Từ giờ
-            <TimeField value={from} onChange={setFrom} required />
-          </label>
-          <label className="space-y-1 text-sm">
-            Đến giờ
-            <TimeField value={to} onChange={setTo} required />
-          </label>
-        </div>
-        <p className={`rounded-lg px-3 py-2 text-sm ${tooShort ? "bg-clay/15 text-clay" : "bg-ok/15 text-ok"}`}>
-          {tooShort
-            ? `Được tính ${minutesToHm(counted)}. Cần từ ${settings.overtimeMinMinutes} phút trở lên, chỉ tính giờ nghỉ trưa và buổi tối sau ${settings.workEnd}.`
-            : `Được tính ${minutesToHm(counted)} tăng ca nếu được duyệt.`}
-        </p>
-        <label className="block space-y-1 text-sm">
-          Việc đã làm
-          <textarea className="min-h-20 w-full rounded-md border border-line bg-card px-3 py-2 text-base outline-none focus:border-amber" value={note} onChange={(e) => setNote(e.target.value)} required minLength={3} maxLength={300} placeholder="VD: Hoàn thiện đơn hàng gấp cho khách" />
-        </label>
-        <button className={`${primaryBtn} w-full`} type="submit" disabled={busy || tooShort}>{busy ? "Đang gửi…" : "Gửi đơn tăng ca"}</button>
-        {sent ? <p className="text-sm text-ok">{sent}</p> : null}
-        {error ? <p className="text-sm text-clay">{error}</p> : null}
+        {session !== "" ? (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="space-y-1 text-sm">
+                Từ giờ
+                <TimeField value={from} onChange={setFrom} />
+              </label>
+              <label className="space-y-1 text-sm">
+                Xong việc lúc
+                <TimeField value={to} onChange={setTo} />
+              </label>
+            </div>
+            {session === "evening" ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted">Chọn nhanh:</span>
+                {endChips.map((hm) => (
+                  <button key={hm} type="button" onClick={() => setTo(hm)} className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${to === hm ? "border-amber bg-ice/20" : "border-line"}`}>
+                    {hm}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {ready ? (
+              <p className={`rounded-lg px-3 py-2 text-sm ${tooShort ? "bg-clay/15 text-clay" : "bg-ok/15 text-ok"}`}>
+                {tooShort
+                  ? `Được tính ${minutesToHm(counted)}. Cần từ ${settings.overtimeMinMinutes} phút trở lên, chỉ tính giờ nghỉ trưa và sau ${settings.workEnd}.`
+                  : `Được tính ${hmText(counted)} tăng ca nếu được duyệt.`}
+              </p>
+            ) : (
+              <p className="rounded-lg bg-sand px-3 py-2 text-sm text-muted">Nhập giờ xong việc (hoặc bấm một mốc giờ ở trên) để tiếp tục.</p>
+            )}
+            <label className="block space-y-1 text-sm">
+              Việc đã làm (không bắt buộc)
+              <textarea className="min-h-16 w-full rounded-md border border-line bg-card px-3 py-2 text-base outline-none focus:border-amber" value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} placeholder="VD: Hoàn thiện đơn hàng gấp cho khách" />
+            </label>
+            {ready ? <button className={`${primaryBtn} w-full`} type="submit" disabled={busy}>Gửi đơn tăng ca</button> : null}
+          </>
+        ) : null}
+        {sent ? <p className="text-sm font-semibold text-ok">{sent}</p> : null}
+        {error ? <p className="text-sm font-semibold text-clay">{error}</p> : null}
       </form>
+      {confirming ? (
+        <div className="fixed inset-0 z-50 grid place-items-end bg-black/60 p-4 sm:place-items-center" role="dialog" aria-modal="true" aria-label="Xác nhận đơn tăng ca">
+          <div className="w-full max-w-sm space-y-3 rounded-2xl border border-line bg-card p-5">
+            <p className="text-sm text-muted">Bạn kiểm tra lại nhé:</p>
+            <p className="font-display text-2xl leading-snug font-bold">Tăng ca {sessionName}</p>
+            <p className="text-lg">
+              từ <b>{from}</b> đến <b>{to}</b>
+              <br />
+              {formatVnDay(date)}
+            </p>
+            <p className="text-base">Được tính: <b>{hmText(counted)}</b></p>
+            <p className="text-base font-semibold">Đúng chưa?</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" className={primaryBtn} disabled={busy} onClick={() => void send()}>{busy ? "Đang gửi…" : "Đúng, gửi đơn"}</button>
+              <button type="button" className={secondaryBtn} disabled={busy} onClick={() => setConfirming(false)}>Sửa lại</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {mine.length ? (
         <section className="space-y-2">
           <h3 className="font-semibold">Đơn tăng ca của tôi</h3>
           {mine.map((row) => (
             <article key={`mine-${row.id}`} className="rounded-xl border border-line bg-card px-3.5 py-2.5">
               <div className="flex items-center justify-between gap-3">
-                <p className="font-medium">{formatVnDay(row.workDate)} · {row.startTime}–{row.endTime}</p>
+                <p className="font-medium">{formatVnDay(row.workDate)} · {row.startTime}–{row.endTime} · {overtimeSessionLabel(row.startTime, row.endTime, settings)}</p>
                 <Badge tone={statusTone(row.status)}>{statusText(row.status)}</Badge>
               </div>
               <p className="mt-1 text-sm text-muted">Tính {minutesToHm(row.minutes)}</p>

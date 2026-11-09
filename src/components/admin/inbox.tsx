@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Search, X } from "lucide-react";
 import { errorText } from "@/components/ui";
 import { reviewCorrection, reviewLeave, reviewOvertime, reviewOvertimeRequest } from "@/lib/attendance.functions";
-import type { CorrectionRow, LeaveRow, OvertimeRequestRow, PunchRow } from "@/lib/attendance-types";
+import { correctionTimeText, overtimeSessionLabel, type CorrectionRow, type LeaveRow, type OvertimeRequestRow, type PunchRow, type Settings } from "@/lib/attendance-types";
 import { formatMeters, minutesToHm, vnDateKey, vnTime } from "@/lib/vn-time";
 import type { AdminCtx } from "./app";
 import { ago, Card, Chip, KIND_LABEL, LEAVE_LABEL, PageHero, PunchPhoto, shortDate } from "./common";
@@ -72,7 +72,7 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
       .map((c) => ({
         key: `c${c.id}`,
         name: c.fullName,
-        text: `${KIND_LABEL[c.kind] ?? c.kind} · ${shortDate(c.attendanceDate)} · ${c.punchType === "in" ? "vào" : "ra"} ${c.requestedTime}`,
+        text: `${KIND_LABEL[c.kind] ?? c.kind} · ${shortDate(c.attendanceDate)} · ${correctionTimeText(c).toLowerCase()}`,
         status: c.status as "approved" | "rejected",
         by: c.reviewedByName,
         at: c.reviewedAt,
@@ -319,7 +319,7 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
                           <p className="font-medium">{i.name}</p>
                           <p className="text-xs text-muted">{[who?.employeeCode, who?.department].filter(Boolean).join(" · ") || "—"}</p>
                         </td>
-                        <td className="px-2 py-3 text-muted">{summary(i)}</td>
+                        <td className="px-2 py-3 text-muted">{summary(i, data.settings)}</td>
                         <td className="px-4 py-3 text-right text-xs whitespace-nowrap text-muted">{ago(i.at)}</td>
                       </tr>
                     );
@@ -389,13 +389,13 @@ export function InboxView({ ctx }: { ctx: AdminCtx }) {
   );
 }
 
-function summary(i: Item): string {
+function summary(i: Item, settings: Settings): string {
   if (i.kind === "correction") {
     const c = i.row;
-    return `${KIND_LABEL[c.kind] ?? c.kind} · ${shortDate(c.attendanceDate)} · xin ${c.punchType === "in" ? "vào" : "ra"} ${c.requestedTime}`;
+    return `${KIND_LABEL[c.kind] ?? c.kind} · ${shortDate(c.attendanceDate)} · xin ${correctionTimeText(c).toLowerCase()}`;
   }
   if (i.kind === "leave") return `${LEAVE_LABEL[i.row.kind] ?? i.row.kind} · ngày ${shortDate(i.row.leaveDate)}`;
-  if (i.kind === "otreq") return `${i.row.startTime}–${i.row.endTime} · ${shortDate(i.row.workDate)} · tính ${minutesToHm(i.row.minutes)}`;
+  if (i.kind === "otreq") return `${overtimeSessionLabel(i.row.startTime, i.row.endTime, settings)} ${i.row.startTime}–${i.row.endTime} · ${shortDate(i.row.workDate)} · tính ${minutesToHm(i.row.minutes)}`;
   return `Tăng ca ${minutesToHm(i.row.overtimeMinutes)} · ${shortDate(vnDateKey(i.row.punchedAt))}`;
 }
 
@@ -409,7 +409,7 @@ function Detail({ item }: { item: Item }) {
           <Chip tone="muted">{KIND_LABEL[c.kind] ?? c.kind}</Chip>
         </div>
         <p className="font-display text-4xl leading-tight font-semibold">
-          Xin chấm {c.punchType === "in" ? "vào" : "ra"} lúc {c.requestedTime}
+          {c.pairedTime ? `Xin chấm vào lúc ${c.requestedTime}, ra lúc ${c.pairedTime}` : `Xin chấm ${c.punchType === "in" ? "vào" : "ra"} lúc ${c.requestedTime}`}
         </p>
         <p className="text-sm text-muted">Ngày {shortDate(c.attendanceDate)} · gửi {ago(c.createdAt)}</p>
         <blockquote className="border-l-4 border-ice bg-paper px-4 py-3 text-sm">{c.note}</blockquote>

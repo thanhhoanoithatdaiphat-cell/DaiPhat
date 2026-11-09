@@ -102,7 +102,43 @@ export type CorrectionRow = {
   createdAt: string;
   reviewedByName: string | null;
   reviewedAt: string | null;
+  /** Đơn "thiếu cả vào và ra": dòng này là giờ vào, `pairedTime` là giờ ra đi kèm (cùng một đơn). */
+  pairedTime?: string | null;
 };
+
+/** Chữ mô tả giờ cần ghi của đơn sửa công, ví dụ "Vào 07:30" hoặc "Vào 07:30 · Ra 17:00". */
+export function correctionTimeText(c: Pick<CorrectionRow, "punchType" | "requestedTime" | "pairedTime">): string {
+  const first = `${c.punchType === "in" ? "Vào" : "Ra"} ${c.requestedTime}`;
+  return c.pairedTime ? `${first} · Ra ${c.pairedTime}` : first;
+}
+
+/** Một ngày nhân viên chưa chấm đủ giờ vào / giờ ra (dùng cho danh sách "ngày thiếu công" và thông báo nhắc). */
+export type MissedDay = {
+  /** Ngày (yyyy-mm-dd, giờ Việt Nam). */
+  day: string;
+  /** Còn thiếu: giờ vào, giờ ra, hoặc cả hai (cả ngày không có lượt chấm nào). */
+  missing: "in" | "out" | "both";
+  /** Giờ vào / giờ ra đã có trong ngày (ISO), null nếu chưa có. */
+  inAt: string | null;
+  outAt: string | null;
+  /** Đã gửi đơn sửa công cho phần còn thiếu và đang chờ duyệt. */
+  pending: boolean;
+};
+
+/** Buổi của một đơn tăng ca: "Trưa" (đè giờ nghỉ trưa), "Tối" (sau giờ ra ca) hoặc "Khác". */
+export function overtimeSessionLabel(
+  start: string,
+  end: string,
+  s: Pick<Settings, "workEnd" | "lunchStart" | "lunchEnd">,
+): "Trưa" | "Tối" | "Khác" {
+  const hm = (v: string) => {
+    const [h, m] = v.split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+  if (hm(start) < hm(s.lunchEnd) && hm(end) > hm(s.lunchStart)) return "Trưa";
+  if (hm(end) > hm(s.workEnd)) return "Tối";
+  return "Khác";
+}
 
 export type LeaveKind = "phep" | "om" | "thaisan" | "khac";
 
@@ -192,6 +228,8 @@ export type WorkspaceData = {
   gpsFlagsToday: PunchRow[];
   lateToday: PunchRow[];
   overtimePending: PunchRow[];
+  /** Các ngày gần đây (không kể hôm nay) mà nhân viên chưa chấm đủ giờ vào/ra, ngày gần nhất lên đầu. */
+  missedDays: MissedDay[];
 };
 
 /** Công tích lũy của chính người dùng trong tháng, hiện ở thẻ "Công tháng" trên điện thoại. */

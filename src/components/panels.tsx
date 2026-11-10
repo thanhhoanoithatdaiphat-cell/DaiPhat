@@ -310,7 +310,11 @@ const REMINDER_DISMISS_KEY = "vaoca_reminder_dismissed";
 /** Những ngày nhân viên báo "hôm đó tôi nghỉ" (vd. mất điện sau khi chấm vào): không nhắc lại ngày đó nữa. */
 const REMINDER_SKIP_KEY = "vaoca_reminder_skipped_days";
 
+const SKIP_EVENT = "vaoca-skip-change";
+let skippedMemory: string[] | null = null;
+
 function readSkippedDays(): string[] {
+  if (skippedMemory) return skippedMemory;
   try {
     const raw = typeof window !== "undefined" ? window.localStorage.getItem(REMINDER_SKIP_KEY) : null;
     const list = raw ? (JSON.parse(raw) as unknown) : [];
@@ -318,6 +322,31 @@ function readSkippedDays(): string[] {
   } catch {
     return [];
   }
+}
+
+function writeSkippedDays(next: string[]) {
+  skippedMemory = next.slice(-90);
+  try {
+    window.localStorage.setItem(REMINDER_SKIP_KEY, JSON.stringify(skippedMemory));
+  } catch {
+    // Không lưu được thì chỉ nhớ trong lần mở này.
+  }
+  window.dispatchEvent(new Event(SKIP_EVENT));
+}
+
+/** Danh sách ngày đã bỏ qua, dùng chung cho thẻ nhắc, số trên tab và danh sách Sửa công. */
+function useSkippedDays() {
+  const [skipped, setSkipped] = useState<string[]>(readSkippedDays);
+  useEffect(() => {
+    const sync = () => setSkipped(readSkippedDays());
+    window.addEventListener(SKIP_EVENT, sync);
+    return () => window.removeEventListener(SKIP_EVENT, sync);
+  }, []);
+  return {
+    skipped,
+    skip: (day: string) => writeSkippedDays([...readSkippedDays().filter((d) => d !== day), day]),
+    restore: (day?: string) => writeSkippedDays(day ? readSkippedDays().filter((d) => d !== day) : []),
+  };
 }
 
 function MissedReminder({ days, onFix }: { days: MissedDay[]; onFix: (day: string) => void }) {
@@ -328,7 +357,7 @@ function MissedReminder({ days, onFix }: { days: MissedDay[]; onFix: (day: strin
       return false;
     }
   });
-  const [skipped, setSkipped] = useState<string[]>(readSkippedDays);
+  const { skipped, skip } = useSkippedDays();
   const open = days.filter((d) => d.missing !== "both" && !d.pending && !skipped.includes(d.day));
   const first = open[0];
   if (!first || hidden) return null;
@@ -364,23 +393,13 @@ function MissedReminder({ days, onFix }: { days: MissedDay[]; onFix: (day: strin
           Để sau
         </button>
       </div>
-      {first.missing === "out" ? (
-        <button
-          type="button"
-          className="w-full rounded-lg border border-line px-3 py-2 text-sm font-semibold text-ink"
-          onClick={() => {
-            const next = [...skipped, first.day];
-            try {
-              window.localStorage.setItem(REMINDER_SKIP_KEY, JSON.stringify(next.slice(-90)));
-            } catch {
-              // Không lưu được thì chỉ ẩn trong lần mở này.
-            }
-            setSkipped(next);
-          }}
-        >
-          Hôm đó tôi nghỉ (mất điện, việc đột xuất), đừng nhắc nữa
-        </button>
-      ) : null}
+      <button
+        type="button"
+        className="w-full rounded-lg border border-line px-3 py-2 text-sm font-semibold text-ink"
+        onClick={() => skip(first.day)}
+      >
+        Hôm đó tôi nghỉ hoặc bấm nhầm, đừng nhắc nữa
+      </button>
       {open.length > 1 ? <p className="text-xs text-muted">Còn {open.length - 1} ngày khác cũng thiếu giờ. Xem ở mục Đơn → Sửa công.</p> : null}
     </div>
   );
@@ -1376,6 +1395,7 @@ export function RequestsPanel({
   onChanged: () => Promise<void>;
 }) {
   const [view, setView] = useState<"review" | "fix" | "leave" | "overtime" | "mine">("fix");
+  const { skipped: skippedDays } = useSkippedDays();
   const [rows, setRows] = useState<CorrectionRow[] | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -1419,7 +1439,7 @@ export function RequestsPanel({
 
   const tabs: { id: typeof view; label: string; badge?: number }[] = [
     ...(canReview ? [{ id: "review" as const, label: "Chờ duyệt", badge: pending.length }] : []),
-    { id: "fix", label: "Sửa công", badge: missedDays.filter((d) => d.missing !== "both" && !d.pending).length },
+    { id: "fix", label: "Sửa công", badge: missedDays.filter((d) => d.missing !== "both" && !d.pending && !skippedDays.includes(d.day)).length },
     { id: "leave", label: "Xin nghỉ" },
     { id: "overtime", label: "Tăng ca" },
     { id: "mine", label: canReview ? "Tất cả" : "Đã gửi" },
@@ -1564,6 +1584,7 @@ function FixSection({
   const [pickOther, setPickOther] = useState(false);
   const [otherDate, setOtherDate] = useState(vnDateKey(new Date(Date.now() - 86_400_000)));
   const [looking, setLooking] = useState(false);
+  const { skipped, skip, restore } = useSkippedDays();
   const yesterday = vnDateKey(new Date(Date.now() - 86_400_000));
 
   async function openOther() {
@@ -1601,7 +1622,8 @@ function FixSection({
     );
   }
 
-  const partial = missedDays.filter((d) => d.missing !== "both");
+  const partial = missedDays.filter((d) => d.missing !== "both" && !skipped.includes(d.day));
+  const hidden = missedDays.filter((d) => d.missing !== "both" && skipped.includes(d.day));
   const whole = missedDays.filter((d) => d.missing === "both");
   const toTarget = (d: MissedDay): FixTarget => ({ day: d.day, missing: d.missing, inAt: d.inAt, outAt: d.outAt });
   const dayTitle = (day: string) => `${formatVnDay(day)}${day === yesterday ? " (hôm qua)" : ""}`;
@@ -1619,7 +1641,20 @@ function FixSection({
       ) : null}
       {partial.map((d) => (
         <article key={d.day} className="space-y-2 rounded-xl border border-line bg-card p-3.5">
-          <p className="text-lg font-bold">{dayTitle(d.day)}</p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-lg font-bold">{dayTitle(d.day)}</p>
+            {d.pending ? null : (
+              <button
+                type="button"
+                aria-label="Bỏ qua ngày này (nghỉ hoặc bấm nhầm)"
+                title="Bỏ qua ngày này (nghỉ hoặc bấm nhầm)"
+                className="-mt-1 -mr-1 grid size-9 shrink-0 place-items-center rounded-full text-xl leading-none text-muted hover:bg-sand"
+                onClick={() => skip(d.day)}
+              >
+                ×
+              </button>
+            )}
+          </div>
           <p className="text-sm">
             {d.missing === "out"
               ? `Đã vào ${d.inAt ? hmOfIso(d.inAt) : "--:--"} · chưa có giờ ra`
@@ -1634,6 +1669,14 @@ function FixSection({
           )}
         </article>
       ))}
+      {hidden.length > 0 ? (
+        <p className="text-xs text-muted">
+          Đã bỏ qua {hidden.length} ngày (nghỉ hoặc bấm nhầm).{" "}
+          <button type="button" className="font-semibold underline" onClick={() => restore()}>
+            Hiện lại
+          </button>
+        </p>
+      ) : null}
       {whole.length > 0 ? (
         <details className="rounded-xl border border-line bg-card p-3.5">
           <summary className="cursor-pointer text-sm font-semibold">Ngày không có lượt chấm nào ({whole.length} ngày)</summary>

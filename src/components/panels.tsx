@@ -307,6 +307,18 @@ function PunchSuccess({ info, lateFrom, onClose, onDetail }: { info: SuccessInfo
 
 /** Thông báo nhắc: hôm trước quên chấm giờ vào hoặc giờ ra. Chỉ nhắc các ngày thiếu MỘT giờ (ngày không chấm gì có thể là ngày nghỉ). */
 const REMINDER_DISMISS_KEY = "vaoca_reminder_dismissed";
+/** Những ngày nhân viên báo "hôm đó tôi nghỉ" (vd. mất điện sau khi chấm vào): không nhắc lại ngày đó nữa. */
+const REMINDER_SKIP_KEY = "vaoca_reminder_skipped_days";
+
+function readSkippedDays(): string[] {
+  try {
+    const raw = typeof window !== "undefined" ? window.localStorage.getItem(REMINDER_SKIP_KEY) : null;
+    const list = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(list) ? list.filter((d): d is string => typeof d === "string").slice(-90) : [];
+  } catch {
+    return [];
+  }
+}
 
 function MissedReminder({ days, onFix }: { days: MissedDay[]; onFix: (day: string) => void }) {
   const [hidden, setHidden] = useState(() => {
@@ -316,7 +328,8 @@ function MissedReminder({ days, onFix }: { days: MissedDay[]; onFix: (day: strin
       return false;
     }
   });
-  const open = days.filter((d) => d.missing !== "both" && !d.pending);
+  const [skipped, setSkipped] = useState<string[]>(readSkippedDays);
+  const open = days.filter((d) => d.missing !== "both" && !d.pending && !skipped.includes(d.day));
   const first = open[0];
   if (!first || hidden) return null;
   const yesterday = vnDateKey(new Date(Date.now() - 86_400_000));
@@ -351,6 +364,23 @@ function MissedReminder({ days, onFix }: { days: MissedDay[]; onFix: (day: strin
           Để sau
         </button>
       </div>
+      {first.missing === "out" ? (
+        <button
+          type="button"
+          className="w-full rounded-lg border border-line px-3 py-2 text-sm font-semibold text-ink"
+          onClick={() => {
+            const next = [...skipped, first.day];
+            try {
+              window.localStorage.setItem(REMINDER_SKIP_KEY, JSON.stringify(next.slice(-90)));
+            } catch {
+              // Không lưu được thì chỉ ẩn trong lần mở này.
+            }
+            setSkipped(next);
+          }}
+        >
+          Hôm đó tôi nghỉ (mất điện, việc đột xuất), đừng nhắc nữa
+        </button>
+      ) : null}
       {open.length > 1 ? <p className="text-xs text-muted">Còn {open.length - 1} ngày khác cũng thiếu giờ. Xem ở mục Đơn → Sửa công.</p> : null}
     </div>
   );

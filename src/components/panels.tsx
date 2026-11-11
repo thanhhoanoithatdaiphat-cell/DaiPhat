@@ -1763,6 +1763,12 @@ function FixForm({
 
   function chooseMode(next: "in" | "out" | "both") {
     setMode(next);
+    // Ngày mới có một lượt chấm từ trưa trở đi: thường là quên chấm vào nên lần chấm đó bị ghi thành "vào".
+    // Chọn "Cả hai" thì điền sẵn giờ ra = lần chấm đó, giờ vào = giờ vào ca.
+    if (next === "both" && target.inAt && !target.outAt && vnMinutes(target.inAt) >= 12 * 60) {
+      setTimeIn(workStart);
+      setTimeOut(hmOfIso(target.inAt));
+    }
     if (!noteTouched) setNote(defaultFixNote(kind, next));
   }
   function chooseKind(next: string) {
@@ -1800,21 +1806,35 @@ function FixForm({
       </button>
       <h2 className="font-display text-2xl font-bold">Sửa công · {formatVnDay(target.day)}</h2>
       {have ? <p className="text-sm text-muted">Ngày này đã có: {have}</p> : <p className="text-sm text-muted">Ngày này chưa có lượt chấm nào.</p>}
-      {mode === "" ? (
-        <div className="space-y-2">
-          <p className="text-base font-semibold">Bạn muốn sửa giờ nào?</p>
-          <div className="grid grid-cols-3 gap-2">
-            {([["in", "Giờ vào"], ["out", "Giờ ra"], ["both", "Cả hai"]] as const).map(([v, label]) => (
-              <button key={v} type="button" className="rounded-lg border border-line px-2 py-3 text-base font-semibold" onClick={() => chooseMode(v)}>
-                {label}
-              </button>
-            ))}
-          </div>
+      <div className="space-y-2">
+        <p className="text-base font-semibold">Bạn muốn sửa giờ nào?</p>
+        <div className="grid grid-cols-3 gap-2">
+          {([["in", "Giờ vào"], ["out", "Giờ ra"], ["both", "Cả hai"]] as const).map(([v, label]) => (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={mode === v}
+              className={`rounded-lg border px-2 py-3 text-base font-semibold ${mode === v ? "border-gold bg-gold text-night" : "border-line"}`}
+              onClick={() => chooseMode(v)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-      ) : (
+        {target.inAt && !target.outAt ? (
+          <p className="text-xs text-muted">
+            Giờ vào đã ghi không đúng (ví dụ quên chấm vào nên lần chấm lúc {hmOfIso(target.inAt)} bị ghi thành giờ vào)? Chọn "Cả hai" rồi nhập đúng giờ vào và giờ ra.
+          </p>
+        ) : null}
+      </div>
+      {mode === "" ? null : (
         <>
           <p className="text-sm font-semibold text-amber">
-            {mode === "both" ? "Thiếu cả giờ vào và giờ ra" : mode === "in" ? "Thiếu giờ vào" : "Thiếu giờ ra"}
+            {mode === "both"
+              ? "Giờ vào và giờ ra sẽ được ghi theo giờ bạn nhập"
+              : mode === "in"
+                ? target.inAt ? "Giờ vào đã ghi sẽ được thay bằng giờ bạn nhập" : "Thiếu giờ vào"
+                : target.outAt ? "Giờ ra đã ghi sẽ được thay bằng giờ bạn nhập" : "Thiếu giờ ra"}
           </p>
           <div className="grid grid-cols-2 gap-3">
             {mode !== "out" ? (

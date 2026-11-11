@@ -1504,11 +1504,12 @@ async function decideCorrection(
     const sunday = vnWeekday(day + "T00:00:00+07:00") === 0 || (await isHolidayDay(profile.companyId, day));
     const bounds = dayRange(day);
     // Lần vào sớm nhất đang có trong ngày (giờ Việt Nam), dùng cho cả tính muộn và tính vào sớm.
-    const earliestIn = async () => {
+    const earliestIn = async (excludeId = 0) => {
       const rows = await sql<{ punched_at: unknown }>`
         select punched_at from attendances
         where user_id = ${row.user_id}
           and type = 'in'
+          and id <> ${excludeId}
           and punched_at >= ${bounds.start}::timestamptz
           and punched_at < ${bounds.end}::timestamptz
           and status in ('valid', 'corrected')
@@ -1517,9 +1518,26 @@ async function decideCorrection(
       `;
       return rows[0] ? stamp(rows[0].punched_at) : null;
     };
+    // Đơn sửa giờ vào/ra THAY dòng đã có trong ngày (giờ vào: dòng sớm nhất, giờ ra: dòng muộn nhất) thay vì thêm một dòng nữa.
+    // Nhờ vậy một lần chấm bị ghi nhầm loại (quên chấm vào nên lần chấm chiều bị ghi thành "vào") được sửa đúng, không còn dòng thừa làm sai giờ làm.
+    const replaced =
+      row.punch_type === "in"
+        ? await sql<{ id: number; punched_at: unknown }>`
+            select id, punched_at from attendances
+            where user_id = ${row.user_id} and type = 'in'
+              and punched_at >= ${bounds.start}::timestamptz and punched_at < ${bounds.end}::timestamptz
+              and status in ('valid', 'corrected')
+            order by punched_at asc limit 1`
+        : await sql<{ id: number; punched_at: unknown }>`
+            select id, punched_at from attendances
+            where user_id = ${row.user_id} and type = 'out'
+              and punched_at >= ${bounds.start}::timestamptz and punched_at < ${bounds.end}::timestamptz
+              and status in ('valid', 'corrected')
+            order by punched_at desc limit 1`;
+    const replacedId = replaced[0] ? Number(replaced[0].id) : 0;
     if (!sunday && row.punch_type === "in") {
       // Chỉ tính muộn nếu đây sẽ là lần vào đầu tiên (hoặc sớm nhất)
-      const existingIn = await earliestIn();
+      const existingIn = await earliestIn(replacedId);
       const existing = existingIn ? [{ punched_at: existingIn }] : [];
       const isEarliest = !existing[0] || new Date(punchedAt).getTime() <= new Date(stamp(existing[0].punched_at)).getTime();
       if (isEarliest) {
@@ -1541,18 +1559,34 @@ async function decideCorrection(
       overtimeMinutes = ot.minutes;
       overtimeStatus = ot.counted ? "pending" : "none";
     }
-    await sql`
-      insert into attendances (
-        user_id, company_id, type, punched_at, status, nearest_name, location_source, note,
-        late_minutes, overtime_minutes, overtime_status
-      ) values (
-        ${row.user_id}, ${profile.companyId}, ${row.punch_type}, ${punchedAt}::timestamptz,
-        'corrected', 'Đơn đã duyệt', 'manual', ${`Đơn #${row.id}`},
-        ${lateMinutes}, ${overtimeMinutes}, ${overtimeStatus}
-      )
-    `;
+    if (replacedId) {
+      const wasAt = vnMinutes(stamp(replaced[0].punched_at));
+      await sql`
+        update attendances
+        set punched_at = ${punchedAt}::timestamptz,
+            status = 'corrected',
+            nearest_name = 'Đơn đã duyệt',
+            location_source = 'manual',
+            note = ${`Đơn #${row.id} (sửa từ ${minutesToHm(wasAt)})`},
+            late_minutes = ${row.punch_type === "in" ? lateMinutes : 0},
+            overtime_minutes = ${row.punch_type === "out" ? overtimeMinutes : 0},
+            overtime_status = ${row.punch_type === "out" ? overtimeStatus : "none"}
+        where id = ${replacedId}
+      `;
+    } else {
+      await sql`
+        insert into attendances (
+          user_id, company_id, type, punched_at, status, nearest_name, location_source, note,
+          late_minutes, overtime_minutes, overtime_status
+        ) values (
+          ${row.user_id}, ${profile.companyId}, ${row.punch_type}, ${punchedAt}::timestamptz,
+          'corrected', 'Đơn đã duyệt', 'manual', ${`Đơn #${row.id}`},
+          ${lateMinutes}, ${overtimeMinutes}, ${overtimeStatus}
+        )
+      `;
+    }
     // Duyệt đơn sửa giờ VÀO sớm hơn giờ vào ca khi ngày đó đã có lượt ra: tính lại tăng ca của lượt ra (chỉ khi chưa được duyệt hay từ chối).
-    if (!sunday && row.punch_type === "in" && clock < hmToMinutes(settings.workStart)) {
+    if (!sunday && row.punch_type === "in" && (replacedId || clock < hmToMinutes(settings.workStart))) {
       const outs = await sql<{ id: number; punched_at: unknown; overtime_status: string }>`
         select id, punched_at, overtime_status from attendances
         where user_id = ${row.user_id}

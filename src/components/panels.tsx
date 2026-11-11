@@ -2,7 +2,7 @@ import { TimeField } from "@/components/time-field";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { downloadXlsx } from "@/lib/xlsx-lite";
 import { timesheetSheets } from "@/lib/timesheet-xlsx";
-import { ChevronLeft, ChevronRight, Crown, MapPin } from "lucide-react";
+import { Bell, ChevronLeft, ChevronRight, Crown, MapPin, X } from "lucide-react";
 import { displayPhone, phoneFromLoginEmail } from "@/lib/phone";
 import { countableOvertime, workedMinutes } from "@/lib/month-grid";
 import { CameraSheet } from "@/components/camera-sheet";
@@ -368,39 +368,58 @@ function MissedReminder({ days, onFix }: { days: MissedDay[]; onFix: (day: strin
     first.missing === "out"
       ? `Bạn đã vào ca lúc ${first.inAt ? hmOf(first.inAt) : "--:--"} nhưng chưa chấm giờ ra.`
       : `Bạn đã ra ca lúc ${first.outAt ? hmOf(first.outAt) : "--:--"} nhưng chưa chấm giờ vào.`;
+  const dismiss = () => {
+    try {
+      window.localStorage.setItem(REMINDER_DISMISS_KEY, vnDateKey());
+    } catch {
+      // Không lưu được thì chỉ ẩn trong lần mở này.
+    }
+    setHidden(true);
+  };
+  // Thẻ thông báo nổi: nằm đè lên trên cùng, KHÔNG chiếm chỗ trong bố cục nên khu vực chấm công không bị xê dịch.
   return (
-    <div role="alert" className="mx-5 shrink-0 space-y-2 rounded-xl border border-clay bg-clay/15 px-3.5 py-3 md:mx-8">
-      <p className="text-base font-bold text-ink">
-        {when} bạn quên chấm giờ {first.missing === "out" ? "ra" : "vào"}
-      </p>
-      <p className="text-sm text-ink">{text}</p>
-      <div className="grid grid-cols-2 gap-2">
-        <button type="button" className={primaryBtn} onClick={() => onFix(first.day)}>
-          Gửi đơn sửa công
-        </button>
-        <button
-          type="button"
-          className={secondaryBtn}
-          onClick={() => {
-            try {
-              window.localStorage.setItem(REMINDER_DISMISS_KEY, vnDateKey());
-            } catch {
-              // Không lưu được thì chỉ ẩn trong lần mở này.
-            }
-            setHidden(true);
-          }}
-        >
-          Để sau
-        </button>
-      </div>
-      <button
-        type="button"
-        className="w-full rounded-lg border border-line px-3 py-2 text-sm font-semibold text-ink"
-        onClick={() => skip(first.day)}
+    <div className="pointer-events-none absolute inset-x-0 top-0 z-30 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] md:px-8">
+      <div
+        role="alert"
+        className="reminder-toast pointer-events-auto mx-auto max-w-md space-y-2 rounded-2xl border border-clay bg-card px-3.5 py-3 shadow-[0_10px_30px_-8px_rgba(0,0,0,0.45)] md:max-w-xl"
       >
-        Hôm đó tôi nghỉ hoặc bấm nhầm, đừng nhắc nữa
-      </button>
-      {open.length > 1 ? <p className="text-xs text-muted">Còn {open.length - 1} ngày khác cũng thiếu giờ. Xem ở mục Đơn → Sửa công.</p> : null}
+        <div className="flex items-start gap-2.5">
+          <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-clay/20 text-clay">
+            <Bell className="size-4" strokeWidth={2.25} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold text-ink">
+              {when} bạn quên chấm giờ {first.missing === "out" ? "ra" : "vào"}
+            </p>
+            <p className="mt-0.5 text-xs leading-5 text-muted">{text}</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Để sau"
+            className="-mr-1 -mt-1 grid size-8 shrink-0 place-items-center rounded-full text-muted"
+            onClick={dismiss}
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="h-9 flex-1 rounded-lg bg-gold px-3 text-sm font-bold text-night"
+            onClick={() => onFix(first.day)}
+          >
+            Gửi đơn sửa công
+          </button>
+          <button
+            type="button"
+            className="h-9 rounded-lg border border-line px-3 text-xs font-semibold text-ink"
+            onClick={() => skip(first.day)}
+          >
+            Hôm đó tôi nghỉ
+          </button>
+        </div>
+        {open.length > 1 ? <p className="text-[0.7rem] text-muted">Còn {open.length - 1} ngày khác thiếu giờ · Đơn → Sửa công</p> : null}
+      </div>
     </div>
   );
 }
@@ -637,7 +656,7 @@ export function PunchPanel({
 
   return (
     <>
-    <div className="pz flex h-[calc(100%-4.75rem)] min-h-0 flex-col gap-[clamp(0.4rem,1.7dvh,1.25rem)] pb-3">
+    <div className="pz relative flex h-[calc(100%-4.75rem)] min-h-0 flex-col gap-[clamp(0.4rem,1.7dvh,1.25rem)] pb-3">
       <section className="flex shrink-0 items-start justify-between gap-3 px-5 pt-[max(1rem,env(safe-area-inset-top))] md:px-8">
         <div className="min-w-0">
           <p className="text-xs text-muted">{dateLine()}</p>

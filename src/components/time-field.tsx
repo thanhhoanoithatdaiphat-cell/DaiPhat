@@ -23,11 +23,13 @@ export function TimeField({
   onChange,
   required,
   label,
+  placeholder = "07:30",
 }: {
   value: string;
   onChange: (value: string) => void;
   required?: boolean;
   label?: string;
+  placeholder?: string;
 }) {
   const [text, setText] = useState(value);
   useEffect(() => {
@@ -40,7 +42,7 @@ export function TimeField({
       type="text"
       inputMode="numeric"
       autoComplete="off"
-      placeholder="07:30"
+      placeholder={placeholder}
       maxLength={5}
       pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
       title="Nhập giờ dạng 07:30 (chỉ cần gõ 730)"

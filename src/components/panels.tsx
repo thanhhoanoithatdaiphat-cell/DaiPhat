@@ -1752,44 +1752,54 @@ function FixForm({
   onBack: () => void;
   onSent: (autoApproved: boolean) => Promise<void>;
 }) {
-  const [mode, setMode] = useState<"in" | "out" | "both" | "">(target.missing ?? "");
-  const [timeIn, setTimeIn] = useState(target.inAt ? hmOfIso(target.inAt) : workStart);
-  const [timeOut, setTimeOut] = useState(target.outAt ? hmOfIso(target.outAt) : workEnd);
+  // Luôn hiện hai ô giờ vào / giờ ra: giờ đã chấm được điền sẵn, giờ còn thiếu để trống.
+  const hasIn = Boolean(target.inAt);
+  const hasOut = Boolean(target.outAt);
+  const [timeIn, setTimeIn] = useState(target.inAt ? hmOfIso(target.inAt) : "");
+  const [timeOut, setTimeOut] = useState(target.outAt ? hmOfIso(target.outAt) : "");
   const [kind, setKind] = useState("quen");
-  const [note, setNote] = useState(() => defaultFixNote("quen", target.missing ?? ""));
+  const [note, setNote] = useState("");
   const [noteTouched, setNoteTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  function chooseMode(next: "in" | "out" | "both") {
-    setMode(next);
-    // Ngày mới có một lượt chấm từ trưa trở đi: thường là quên chấm vào nên lần chấm đó bị ghi thành "vào".
-    // Chọn "Cả hai" thì điền sẵn giờ ra = lần chấm đó, giờ vào = giờ vào ca.
-    if (next === "both" && target.inAt && !target.outAt && vnMinutes(target.inAt) >= 12 * 60) {
-      setTimeIn(workStart);
-      setTimeOut(hmOfIso(target.inAt));
-    }
-    if (!noteTouched) setNote(defaultFixNote(kind, next));
-  }
-  function chooseKind(next: string) {
-    setKind(next);
-    if (!noteTouched) setNote(defaultFixNote(next, mode));
+  // Chỉ gửi giờ nào đang thiếu hoặc bị đổi so với giờ đã chấm.
+  const inChanged = timeIn !== "" && timeIn !== (target.inAt ? hmOfIso(target.inAt) : "");
+  const outChanged = timeOut !== "" && timeOut !== (target.outAt ? hmOfIso(target.outAt) : "");
+  const mode: "in" | "out" | "both" | "" = inChanged && outChanged ? "both" : inChanged ? "in" : outChanged ? "out" : "";
+  const finalIn = timeIn || (hasIn ? hmOfIso(target.inAt as string) : "");
+  const finalOut = timeOut || (hasOut ? hmOfIso(target.outAt as string) : "");
+  const orderBad = finalIn !== "" && finalOut !== "" && finalOut <= finalIn;
+  const shownNote = noteTouched ? note : defaultFixNote(kind, mode);
+
+  // Ngày chỉ có một lần chấm từ trưa trở đi: thường là quên chấm vào nên lần chấm đó bị ghi thành "vào".
+  const looksLikeOut = hasIn && !hasOut && vnMinutes(target.inAt as string) >= 12 * 60;
+  function useAsOut() {
+    setTimeOut(hmOfIso(target.inAt as string));
+    setTimeIn("");
   }
 
-  const have = [target.inAt ? `Vào ${hmOfIso(target.inAt)}` : "", target.outAt ? `Ra ${hmOfIso(target.outAt)}` : ""].filter(Boolean).join(" · ");
-  const wantText = mode === "in" ? `Vào ${timeIn}` : mode === "out" ? `Ra ${timeOut}` : `Vào ${timeIn} · Ra ${timeOut}`;
+  const wantText = [inChanged ? `Vào ${timeIn}` : "", outChanged ? `Ra ${timeOut}` : ""].filter(Boolean).join(" · ");
+  const have = [hasIn ? `Vào ${hmOfIso(target.inAt as string)}` : "", hasOut ? `Ra ${hmOfIso(target.outAt as string)}` : ""].filter(Boolean).join(" · ");
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!mode) return;
+    if (!mode) {
+      setError("Nhập giờ còn thiếu hoặc giờ cần sửa");
+      return;
+    }
+    if (orderBad) {
+      setError("Giờ ra phải sau giờ vào");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
-      const punches =
-        mode === "both"
-          ? [{ type: "in" as const, time: timeIn }, { type: "out" as const, time: timeOut }]
-          : [{ type: mode, time: mode === "in" ? timeIn : timeOut }];
-      const finalNote = note.trim().length >= 4 ? note.trim() : defaultFixNote(kind, mode) || "Sửa công";
+      const punches = [
+        ...(inChanged ? [{ type: "in" as const, time: timeIn }] : []),
+        ...(outChanged ? [{ type: "out" as const, time: timeOut }] : []),
+      ];
+      const finalNote = shownNote.trim().length >= 4 ? shownNote.trim() : defaultFixNote(kind, mode) || "Sửa công";
       const res = await createCorrection({ data: { attendanceDate: target.day, kind, note: finalNote, punches } });
       await onSent(res.autoApproved);
     } catch (err) {
@@ -1799,87 +1809,69 @@ function FixForm({
     }
   }
 
+  const slot = (label: string, value: string, set: (v: string) => void, exists: boolean) => (
+    <label className="space-y-1 text-sm font-semibold">
+      <span className="flex items-center justify-between">
+        {label}
+        <span className={`rounded-full px-2 py-0.5 text-[0.65rem] font-bold ${exists ? "bg-ice/20 text-muted" : "bg-clay/20 text-clay"}`}>
+          {exists ? "Đã chấm" : "Thiếu"}
+        </span>
+      </span>
+      <TimeField value={value} onChange={set} label={label} placeholder="--:--" />
+    </label>
+  );
+
   return (
     <form className="space-y-3 rounded-xl border border-line bg-card p-3.5" onSubmit={submit} noValidate>
       <button type="button" className="text-sm font-semibold text-amber" onClick={onBack}>
         ← Chọn ngày khác
       </button>
       <h2 className="font-display text-2xl font-bold">Sửa công · {formatVnDay(target.day)}</h2>
-      {have ? <p className="text-sm text-muted">Ngày này đã có: {have}</p> : <p className="text-sm text-muted">Ngày này chưa có lượt chấm nào.</p>}
+      <div className="rounded-lg bg-ice/10 px-3 py-2 text-sm">
+        <p className="text-muted">Ca làm: <span className="font-semibold text-ink">{workStart} – {workEnd}</span></p>
+        <p className="text-muted">Đã chấm: <span className="font-semibold text-ink">{have || "chưa có lượt nào"}</span></p>
+      </div>
       <div className="space-y-2">
-        <p className="text-base font-semibold">Bạn muốn sửa giờ nào?</p>
-        <div className="grid grid-cols-3 gap-2">
-          {([["in", "Giờ vào"], ["out", "Giờ ra"], ["both", "Cả hai"]] as const).map(([v, label]) => (
-            <button
-              key={v}
-              type="button"
-              aria-pressed={mode === v}
-              className={`rounded-lg border px-2 py-3 text-base font-semibold ${mode === v ? "border-gold bg-gold text-night" : "border-line"}`}
-              onClick={() => chooseMode(v)}
-            >
-              {label}
-            </button>
-          ))}
+        <p className="text-base font-semibold">Giờ chấm công thực tế</p>
+        <div className="grid grid-cols-2 gap-3">
+          {slot("Giờ vào", timeIn, setTimeIn, hasIn)}
+          {slot("Giờ ra", timeOut, setTimeOut, hasOut)}
         </div>
-        {target.inAt && !target.outAt ? (
-          <p className="text-xs text-muted">
-            Giờ vào đã ghi không đúng (ví dụ quên chấm vào nên lần chấm lúc {hmOfIso(target.inAt)} bị ghi thành giờ vào)? Chọn "Cả hai" rồi nhập đúng giờ vào và giờ ra.
-          </p>
+        <p className="text-xs text-muted">Điền giờ còn thiếu, hoặc gõ lại giờ đã chấm nếu bị sai (có thể sửa cả hai).</p>
+        {looksLikeOut ? (
+          <button type="button" className="w-full rounded-lg border border-line px-3 py-2 text-left text-xs font-semibold text-ink" onClick={useAsOut}>
+            Lần chấm lúc {hmOfIso(target.inAt as string)} thực ra là giờ ra (quên chấm vào)? Bấm để chuyển thành giờ ra, rồi nhập giờ vào đúng.
+          </button>
         ) : null}
       </div>
-      {mode === "" ? null : (
-        <>
-          <p className="text-sm font-semibold text-amber">
-            {mode === "both"
-              ? "Giờ vào và giờ ra sẽ được ghi theo giờ bạn nhập"
-              : mode === "in"
-                ? target.inAt ? "Giờ vào đã ghi sẽ được thay bằng giờ bạn nhập" : "Thiếu giờ vào"
-                : target.outAt ? "Giờ ra đã ghi sẽ được thay bằng giờ bạn nhập" : "Thiếu giờ ra"}
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            {mode !== "out" ? (
-              <label className="space-y-1 text-sm">
-                Giờ vào
-                <TimeField value={timeIn} onChange={setTimeIn} />
-              </label>
-            ) : null}
-            {mode !== "in" ? (
-              <label className="space-y-1 text-sm">
-                Giờ ra
-                <TimeField value={timeOut} onChange={setTimeOut} />
-              </label>
-            ) : null}
-          </div>
-          <label className="block space-y-1 text-sm">
-            Lý do
-            <select className={fieldClass} value={kind} onChange={(e) => chooseKind(e.target.value)}>
-              <option value="quen">Quên chấm</option>
-              <option value="gps">GPS lỗi</option>
-              <option value="congtac">Công tác ngoài</option>
-              <option value="khac">Khác</option>
-            </select>
-          </label>
-          <label className="block space-y-1 text-sm">
-            Ghi chú (có thể sửa)
-            <textarea
-              className="min-h-16 w-full rounded-md border border-line bg-card px-3 py-2 text-base outline-none focus:border-amber"
-              value={note}
-              onChange={(e) => {
-                setNote(e.target.value);
-                setNoteTouched(true);
-              }}
-            />
-          </label>
-          <p className="rounded-lg bg-ice/15 px-3 py-2 text-sm font-semibold">Bạn xin ghi: {wantText} ngày {formatVnDay(target.day)}</p>
-          <p className="text-xs text-muted">
-            Tháng này đã dùng {used}/{maxCorrections} đơn. {mode === "both" ? "Đơn này chỉ tính 1 lượt." : ""}
-          </p>
-          <button className={`${primaryBtn} w-full`} type="submit" disabled={busy}>
-            {busy ? "Đang gửi…" : "Gửi đơn"}
-          </button>
-        </>
-      )}
-      {error ? <p className="text-sm font-semibold text-clay">{error}</p> : null}
+      <label className="block space-y-1 text-sm">
+        Lý do
+        <select className={fieldClass} value={kind} onChange={(e) => setKind(e.target.value)}>
+          <option value="quen">Quên chấm</option>
+          <option value="gps">GPS lỗi</option>
+          <option value="congtac">Công tác ngoài</option>
+          <option value="khac">Khác</option>
+        </select>
+      </label>
+      <label className="block space-y-1 text-sm">
+        Ghi chú (có thể sửa)
+        <textarea
+          className="min-h-16 w-full rounded-md border border-line bg-card px-3 py-2 text-base outline-none focus:border-amber"
+          value={shownNote}
+          onChange={(e) => {
+            setNote(e.target.value);
+            setNoteTouched(true);
+          }}
+        />
+      </label>
+      {mode ? <p className="rounded-lg bg-ice/15 px-3 py-2 text-sm font-semibold">Bạn xin ghi: {wantText} ngày {formatVnDay(target.day)}</p> : null}
+      <p className="text-xs text-muted">
+        Tháng này đã dùng {used}/{maxCorrections} đơn. {mode === "both" ? "Đơn này chỉ tính 1 lượt." : ""}
+      </p>
+      {error || orderBad ? <p className="text-sm font-semibold text-clay">{error || "Giờ ra phải sau giờ vào"}</p> : null}
+      <button className={`${primaryBtn} w-full`} type="submit" disabled={busy || !mode || orderBad}>
+        {busy ? "Đang gửi…" : "Gửi đơn"}
+      </button>
     </form>
   );
 }
